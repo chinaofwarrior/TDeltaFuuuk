@@ -22,10 +22,7 @@
 
   <main class="layout">
     <section class="panel control-panel">
-      <div class="panel-title">
-        <h2>实时数据源</h2>
-        <span id="frameRate" class="muted">0 Hz</span>
-      </div>
+      <div class="panel-title"><h2>实时数据源</h2><span id="frameRate" class="muted">0 Hz</span></div>
       <label>WebSocket 地址</label>
       <div class="row">
         <input id="wsUrl" value="ws://127.0.0.1:8765" spellcheck="false" />
@@ -65,12 +62,12 @@
     </section>
 
     <section class="panel threat-panel">
-      <div class="panel-title"><h2>威胁排序</h2><span class="muted">实时</span></div>
+      <div class="panel-title"><h2>威胁 / 已知装备</h2><span class="muted">实时</span></div>
       <div id="threatList" class="list empty">等待数据</div>
     </section>
 
     <section class="panel team-panel">
-      <div class="panel-title"><h2>队伍状态</h2><span class="muted">协同</span></div>
+      <div class="panel-title"><h2>队伍状态 / 装备</h2><span class="muted">协同</span></div>
       <div id="teamList" class="list empty">等待数据</div>
     </section>
 
@@ -78,12 +75,16 @@
       <div class="panel-title"><h2>报点与事件流</h2><span id="clock" class="muted"></span></div>
       <div id="eventLog" class="event-log"></div>
     </section>
+
+    <section class="panel supply-panel">
+      <div class="panel-title"><h2>队伍补给总览</h2><span class="muted">生命 · 护甲 · 弹药 · 医疗 · 修甲 · 投掷物</span></div>
+      <div id="supplyList" class="supply-grid empty">等待队伍装备与补给数据</div>
+    </section>
   </main>
 
   <footer>
-    通用实时 telemetry 客户端 · 不包含游戏进程注入、内存读取、DMA、反作弊绕过或隐藏信息提取。
+    通用实时 telemetry 客户端 · 装备与补给字段只显示数据源明确提供的信息；不包含游戏进程注入、内存读取、DMA、反作弊绕过或隐藏信息提取。
   </footer>
-
   <script src="./app.js"></script>
 </body>
 </html>
