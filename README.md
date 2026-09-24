@@ -21,7 +21,7 @@
 
 位置可以高频发送，装备与补给可以低频发送。客户端会按实体 ID 合并已知状态。
 
-\`\`\`json
+```json
 {
   "ts": 1790229000123,
   "self": {
@@ -65,30 +65,30 @@
     }
   ]
 }
-\`\`\`
+```
 
 ### 装备字段
 
-\`primary\`, \`secondary\`, \`helmet\`, \`armor\`, \`armorDurability\`, \`armorMax\`, \`backpack\`, \`optic\`, \`ammoType\`, \`gearValue\`
+`primary`, `secondary`, `helmet`, `armor`, `armorDurability`, `armorMax`, `backpack`, `optic`, `ammoType`, `gearValue`
 
 ### 补给字段
 
-\`ammo\`, \`magazines\`, \`medkits\`, \`bandages\`, \`armorRepair\`, \`grenades\`, \`smoke\`, \`food\`, \`water\`, \`value\`
+`ammo`, `magazines`, `medkits`, `bandages`, `armorRepair`, `grenades`, `smoke`, `food`, `water`, `value`
 
 ## 本地运行
 
-\`\`\`powershell
+```powershell
 python -m http.server 8080
-\`\`\`
+```
 
 测试实时源：
 
-\`\`\`powershell
+```powershell
 pip install websockets
 python mock-server.py
-\`\`\`
+```
 
-网页连接 \`ws://127.0.0.1:8765\`。
+网页连接 `ws://127.0.0.1:8765`。
 
 ## GitHub Pages
 
