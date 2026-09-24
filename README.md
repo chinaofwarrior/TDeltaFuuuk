@@ -1,35 +1,77 @@
 # TDeltaFuuuk
 
-实时小队战术辅助 Web 客户端。
+Windows 实时小队战术 Hub + 绿色 Agent。
 
-## 当前能力
+## 现在的运行形态
 
-- WebSocket 20–50Hz 实时数据接入
-- 自己 / 队友位置、方向、生命、动作
-- 已知目标 Track、距离、方位、接近速度、威胁评分
-- 自己 / 队友装备与剩余补给
-- 数据源明确提供时显示已知目标装备 / 补给，并标记来源与置信度
-- 高频位置 + 低频装备状态合并：未携带装备字段的新帧不会清空旧装备
-- 队友脱节、倒地、低弹药、医疗耗尽、低护甲提醒
-- 中文浏览器 TTS 报点
-- 本地 Demo 与 20Hz mock server
-- 纯静态网页，可用 GitHub Pages
+### 主机：`TDeltaFuuuk.exe`
 
-> 数据层采用通用 telemetry adapter。请仅接入你有权使用的数据源。本仓库不实现游戏进程注入、内存读取、DMA、反作弊绕过或从游戏中提取未公开的敌人坐标/装备/库存。
+双击后自动：
 
-## 数据协议
+1. 生成 `tdelta-hub.json`（首次启动）。
+2. 生成带共享 Token 的 `TDeltaAgent.config.json`。
+3. 启动本机控制台 `http://127.0.0.1:17888`。
+4. 启动队友 Agent 接入口 `0.0.0.0:17889`。
+5. 启动局域网自动发现 UDP `17892`。
+6. 自动打开浏览器。
 
-位置可以高频发送，装备与补给可以低频发送。客户端会按实体 ID 合并已知状态。
+主机网页只绑定 loopback；局域网不能直接读取你的战术网页。队友上报接口需要共享 Token。
+
+### 队友：`TDeltaAgent.exe`
+
+把主机生成的 `TDeltaAgent.config.json` 与 `TDeltaAgent.exe` 放在同一目录发给队友。队友双击即可：
+
+- 自动使用 Windows 主机名作为 `agent_id` / 名称（配置为空时）。
+- 自动通过 UDP 广播发现同一局域网中的 Hub。
+- 从本机 UDP `127.0.0.1:17890` 或 HTTP `127.0.0.1:17891/ingest` 接收 JSON telemetry。
+- 默认 20Hz 采样最新状态并上报 Hub。
+- 自动重连；Hub 消失时会重新发现。
+
+不需要 Python，不需要 Node，不需要安装服务。
+
+## 数据接入
+
+当前程序故意把“数据怎么产生”与“队伍融合/网页显示”拆开。任何你有权使用的本机数据源，都可以向 Agent 写入统一 JSON。
+
+### HTTP
+
+```text
+POST http://127.0.0.1:17891/ingest
+Content-Type: application/json
+```
+
+### UDP
+
+把同栻的 JSON 数据报发送到：
+
+```text
+127.0.0.1:17890
+```
+
+### 主机直接输入
+
+如果主机本机的数据源不想再运行 Agent，可以直接：
+
+```text
+POST http://127.0.0.1:17888/api/ingest
+```
+
+## Frame 协议示例
 
 ```json
 {
   "ts": 1790229000123,
   "self": {
-    "id": "me", "x": 100, "y": 100, "z": 0, "yaw": 90,
-    "hp": 86, "maxHp": 100,
+    "id": "me",
+    "name": "我",
+    "x": 100,
+    "y": 100,
+    "z": 0,
+    "yaw": 90,
+    "hp": 86,
+    "maxHp": 100,
     "equipment": {
       "primary": "M4A1",
-      "secondary": "",
       "ammoType": "5.56 AP",
       "helmet": "三级头",
       "armor": "战术甲",
@@ -38,58 +80,46 @@
     },
     "supplies": {
       "ammo": 118,
-      "magazines": 4,
       "medkits": 2,
-      "bandages": 1,
       "armorRepair": 1,
       "grenades": 1,
       "smoke": 2
     }
   },
-  "teammates": [
-    {
-      "id": "T2", "name": "二号", "x": 120, "y": 108, "z": 0,
-      "action": "前压",
-      "equipment": {"primary": "K416", "armor": "重甲", "armorDurability": 58, "armorMax": 100},
-      "supplies": {"ammo": 64, "medkits": 1, "armorRepair": 1, "smoke": 1}
-    }
-  ],
   "contacts": [
     {
-      "id": "E1", "x": 145, "y": 110, "z": 0,
+      "id": "E1",
+      "name": "目标A",
+      "x": 145,
+      "y": 110,
       "confidence": 0.85,
       "source": "visual",
       "equipment_source": "team-report",
-      "equipment": {"primary": "SCAR-H", "armor": "重甲"},
-      "supplies": {"ammo": 90}
+      "equipment": {"primary": "SCAR-H", "armor": "重甲"}
     }
   ]
 }
 ```
 
-### 装备字段
+位置和装备都支持稀疏更新：低频装备帧不带 `x/y` 时，Hub/Agent 不会把之前的位置清零；位置帧不重复携带装备时，已知装备/补给也会保留。
 
-`primary`, `secondary`, `helmet`, `armor`, `armorDurability`, `armorMax`, `backpack`, `optic`, `ammoType`, `gearValue`
+## 构建
 
-### 补给字段
-
-`ammo`, `magazines`, `medkits`, `bandages`, `armorRepair`, `grenades`, `smoke`, `food`, `water`, `value`
-
-## 本地运行
+TONG / Windows PowerShell：
 
 ```powershell
-python -m http.server 8080
+.\scripts\build.ps1
 ```
 
-测试实时源：
+输出：
 
-```powershell
-pip install websockets
-python mock-server.py
+```text
+dist\TDeltaFuuuk.exe
+dist\TDeltaAgent.exe
 ```
 
-网页连接 `ws://127.0.0.1:8765`。
+推送 `main` 后，GitHub Actions 的 **Build Windows EXE** 也会运行测试、构建 Windows x64，并上传 `TDeltaFuuuk-windows-amd64` artifact。
 
-## GitHub Pages
+## 安全边界
 
-仓库包含 Pages Actions 工作流。仓库 Pages 首次需要在 GitHub Settings → Pages 中允许 GitHub Actions 发布。
+本仓库的 Adapter 接受明确送入的 telemetry。它不实现游戏进程注入、内存扫描、DMA、反作弊绕过，也不实现从游戏中提取正常玩家不可获得的隐藏敌人位置、装备或库存。

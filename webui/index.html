@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#071018" />
+  <title>TDeltaFuuuk · 实时战术助手</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <div><div class="eyebrow">REAL-TIME SQUAD TACTICAL COPILOT</div><h1>TDeltaFuuuk</h1></div>
+  <div class="connection"><span id="statusDot" class="dot idle"></span><span id="statusText">正在连接本机 Hub</span><span id="latency">-- ms</span></div>
+</header>
+<main class="layout">
+  <section class="panel control-panel">
+    <div class="panel-title"><h2>系统状态</h2><span id="frameRate" class="muted">0 Hz</span></div>
+    <div class="metrics six">
+      <div><strong id="agentCount">0</strong><span>在线 Agent</span></div>
+      <div><strong id="teamCount">0</strong><span>队友</span></div>
+      <div><strong id="contactCount">0</strong><span>目标</span></div>
+      <div><strong id="nearest">--</strong><span>最近距离</span></div>
+      <div><strong id="riskLevel">安全</strong><span>风险</span></div>
+      <div><strong id="sourceAge">--</strong><span>数据年龄</span></div>
+    </div>
+    <div class="row compact">
+      <button id="voiceBtn" class="secondary">语音：开</button>
+      <button id="demoBtn" class="secondary">本地 Demo</button>
+      <button id="clearBtn" class="ghost">清空事件</button>
+    </div>
+  </section>
+
+  <section class="panel radar-panel">
+    <div class="panel-title"><h2>战术态势</h2><div class="legend"><span><i class="legend-dot self"></i>自己</span><span><i class="legend-dot team"></i>队友</span><span><i class="legend-dot enemy"></i>已知目标</span></div></div>
+    <div class="canvas-wrap"><canvas id="radar"></canvas><div class="north">前</div><div id="primaryAlert" class="primary-alert hidden"></div></div>
+    <div class="scale-row"><label>显示半径 <strong id="rangeLabel">120m</strong></label><input id="range" type="range" min="40" max="300" value="120" step="10" /></div>
+  </section>
+
+  <section class="panel threat-panel"><div class="panel-title"><h2>威胁 / 已知装备</h2><span class="muted">实时</span></div><div id="threatList" class="list empty">等待数据</div></section>
+  <section class="panel team-panel"><div class="panel-title"><h2>队伍状态 / 装备</h2><span class="muted">协同</span></div><div id="teamList" class="list empty">等待数据</div></section>
+  <section class="panel event-panel"><div class="panel-title"><h2>报点与事件流</h2><span id="clock" class="muted"></span></div><div id="eventLog" class="event-log"></div></section>
+  <section class="panel supply-panel"><div class="panel-title"><h2>队伍补给总览</h2><span class="muted">生命 · 护甲 · 弹药 · 医疗 · 修甲 · 投掷物</span></div><div id="supplyList" class="supply-grid empty">等待队伍装备与补给数据</div></section>
+</main>
+<footer>Hub 内置网页 · Agent 仅上报明确接入的数据；界面不会自行读取游戏进程。</footer>
+<script src="./app.js"></script>
+</body>
+</html>
