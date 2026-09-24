@@ -47,7 +47,7 @@ function logEvent(text,level='info',key=''){
   const row=document.createElement('div');
   row.className='event '+level;
   const stamp=new Date().toLocaleTimeString('zh-CN',{hour12:false});
-  row.innerHTML=\`<span>[\${stamp}]</span> <b>\${htmlEscape(text)}</b>\`;
+  row.innerHTML=`<span>[${stamp}]</span> <b>${htmlEscape(text)}</b>`;
   els.eventLog.prepend(row);
   while(els.eventLog.children.length>100)els.eventLog.lastChild.remove();
 }
@@ -192,18 +192,18 @@ function equipmentText(e){
   if(q.primary)parts.push(q.primary);
   if(q.ammoType)parts.push(q.ammoType);
   if(q.armor)parts.push(q.armor);
-  const ap=armorPct(e); if(ap!==null)parts.push(\`甲\${ap.toFixed(0)}%\`);
+  const ap=armorPct(e); if(ap!==null)parts.push(`甲${ap.toFixed(0)}%`);
   if(q.helmet)parts.push(q.helmet);
   return parts.length?parts.join(' · '):'装备未知';
 }
 
 function supplyText(e){
   const s=e?.supplies||{}, parts=[];
-  if(s.ammo!==null&&s.ammo!==undefined)parts.push(\`弹\${s.ammo}\`);
-  if(s.medkits!==null&&s.medkits!==undefined)parts.push(\`医疗\${s.medkits}\`);
-  if(s.armorRepair!==null&&s.armorRepair!==undefined)parts.push(\`修甲\${s.armorRepair}\`);
-  if(s.grenades!==null&&s.grenades!==undefined)parts.push(\`雷\${s.grenades}\`);
-  if(s.smoke!==null&&s.smoke!==undefined)parts.push(\`烟\${s.smoke}\`);
+  if(s.ammo!==null&&s.ammo!==undefined)parts.push(`弹${s.ammo}`);
+  if(s.medkits!==null&&s.medkits!==undefined)parts.push(`医疗${s.medkits}`);
+  if(s.armorRepair!==null&&s.armorRepair!==undefined)parts.push(`修甲${s.armorRepair}`);
+  if(s.grenades!==null&&s.grenades!==undefined)parts.push(`雷${s.grenades}`);
+  if(s.smoke!==null&&s.smoke!==undefined)parts.push(`烟${s.smoke}`);
   return parts.length?parts.join(' · '):'补给未知';
 }
 
@@ -211,16 +211,16 @@ function analyzeSupply(e,isMate=true){
   if(!e)return;
   const s=e.supplies||{}, ap=armorPct(e);
   if(isMate&&s.ammo!==null&&s.ammo!==undefined&&s.ammo<30){
-    const msg=\`\${e.name} 弹药偏低，仅剩 \${s.ammo}\`;
-    logEvent(msg,'warn',\`ammo:\${e.id}\`); speak(msg,\`ammo:\${e.id}\`,12000);
+    const msg=`${e.name} 弹药偏低，仅剩 ${s.ammo}`;
+    logEvent(msg,'warn',`ammo:${e.id}`); speak(msg,`ammo:${e.id}`,12000);
   }
   if(isMate&&s.medkits!==null&&s.medkits!==undefined&&s.medkits===0){
-    const msg=\`\${e.name} 医疗耗尽\`;
-    logEvent(msg,'warn',\`med:\${e.id}\`); speak(msg,\`med:\${e.id}\`,15000);
+    const msg=`${e.name} 医疗耗尽`;
+    logEvent(msg,'warn',`med:${e.id}`); speak(msg,`med:${e.id}`,15000);
   }
   if(isMate&&ap!==null&&ap<25){
-    const msg=\`\${e.name} 护甲耐久低于四分之一\`;
-    logEvent(msg,'warn',\`armor:\${e.id}\`); speak(msg,\`armor:\${e.id}\`,15000);
+    const msg=`${e.name} 护甲耐久低于四分之一`;
+    logEvent(msg,'warn',`armor:${e.id}`); speak(msg,`armor:${e.id}`,15000);
   }
 }
 
@@ -233,15 +233,15 @@ function analyze(){
   const top=threats[0];
 
   if(top){
-    els.nearest.textContent=\`\${Math.round(Math.min(...threats.map(x=>x.distance)))}m\`;
+    els.nearest.textContent=`${Math.round(Math.min(...threats.map(x=>x.distance)))}m`;
     const risk=top.score>=.75?'极高':top.score>=.55?'高':top.score>=.32?'警戒':'低';
     els.riskLevel.textContent=risk;
     if(top.score>=.55){
       const action=top.distance<15?'立即寻找实体掩体':top.closing>2?'目标正在快速接近':'避免重复暴露';
-      const msg=\`\${top.direction} \${Math.round(top.distance)}米，\${action}\`;
+      const msg=`${top.direction} ${Math.round(top.distance)}米，${action}`;
       els.primaryAlert.textContent=msg; els.primaryAlert.classList.remove('hidden');
-      speak(msg,\`threat:\${top.e.id}\`,3500);
-      logEvent(msg,top.score>=.75?'danger':'warn',\`threat:\${top.e.id}\`);
+      speak(msg,`threat:${top.e.id}`,3500);
+      logEvent(msg,top.score>=.75?'danger':'warn',`threat:${top.e.id}`);
     }else els.primaryAlert.classList.add('hidden');
   }else{
     els.nearest.textContent='--';els.riskLevel.textContent='安全';els.primaryAlert.classList.add('hidden');
@@ -252,11 +252,11 @@ function analyze(){
     if(state.self){
       const d=dist(state.self,mate);
       if(mate.downed){
-        const msg=\`\${mate.name} 已倒地，距离 \${Math.round(d)} 米\`;
-        logEvent(msg,'danger',\`down:\${mate.id}\`); speak(msg,\`down:\${mate.id}\`,8000);
+        const msg=`${mate.name} 已倒地，距离 ${Math.round(d)} 米`;
+        logEvent(msg,'danger',`down:${mate.id}`); speak(msg,`down:${mate.id}`,8000);
       }else if(d>70){
-        const msg=\`\${mate.name} 脱节 \${Math.round(d)} 米\`;
-        logEvent(msg,'warn',\`gap:\${mate.id}\`); speak(msg,\`gap:\${mate.id}\`,9000);
+        const msg=`${mate.name} 脱节 ${Math.round(d)} 米`;
+        logEvent(msg,'warn',`gap:${mate.id}`); speak(msg,`gap:${mate.id}`,9000);
       }
     }
     analyzeSupply(mate,true);
@@ -272,9 +272,9 @@ function renderLists(threats){
     els.threatList.className='list';
     els.threatList.innerHTML=threats.slice(0,10).map(x=>{
       const cls=x.score>=.6?'high':x.score>=.3?'mid':'low';
-      const motion=x.closing>1?\`接近 +\${x.closing.toFixed(1)}m/s\`:x.closing<-1?\`远离 \${Math.abs(x.closing).toFixed(1)}m/s\`:'横移/静止';
-      const intel=\`\${equipmentText(x.e)} · \${supplyText(x.e)}\`;
-      return \`<div class="card intel-card"><div class="name">\${htmlEscape(x.e.name)}</div><div class="meta">\${x.direction} · \${x.distance.toFixed(0)}m · \${motion}</div><div class="meta intel">\${htmlEscape(intel)}</div><div class="meta">来源 \${htmlEscape(x.e.equipmentSource)} · 置信 \${Math.round(x.e.confidence*100)}%</div><div class="score \${cls}">\${Math.round(x.score*100)}</div></div>\`;
+      const motion=x.closing>1?`接近 +${x.closing.toFixed(1)}m/s`:x.closing<-1?`远离 ${Math.abs(x.closing).toFixed(1)}m/s`:'横移/静止';
+      const intel=`${equipmentText(x.e)} · ${supplyText(x.e)}`;
+      return `<div class="card intel-card"><div class="name">${htmlEscape(x.e.name)}</div><div class="meta">${x.direction} · ${x.distance.toFixed(0)}m · ${motion}</div><div class="meta intel">${htmlEscape(intel)}</div><div class="meta">来源 ${htmlEscape(x.e.equipmentSource)} · 置信 ${Math.round(x.e.confidence*100)}%</div><div class="score ${cls}">${Math.round(x.score*100)}</div></div>`;
     }).join('');
   }
 
@@ -286,7 +286,7 @@ function renderLists(threats){
       const d=state.self?dist(state.self,m):0;
       const status=m.downed?'倒地':m.action||'在线';
       const cls=m.downed||d>70?'high':d>45?'mid':'low';
-      return \`<div class="card intel-card"><div class="name">\${htmlEscape(m.name)}</div><div class="meta">\${status} · \${d.toFixed(0)}m · \${state.self?directionText(state.self,m):'--'}</div><div class="meta intel">\${htmlEscape(equipmentText(m))}</div><div class="meta">\${htmlEscape(supplyText(m))}</div><div class="score \${cls}">\${d.toFixed(0)}m</div></div>\`;
+      return `<div class="card intel-card"><div class="name">${htmlEscape(m.name)}</div><div class="meta">${status} · ${d.toFixed(0)}m · ${state.self?directionText(state.self,m):'--'}</div><div class="meta intel">${htmlEscape(equipmentText(m))}</div><div class="meta">${htmlEscape(supplyText(m))}</div><div class="score ${cls}">${d.toFixed(0)}m</div></div>`;
     }).join('');
   }
 }
@@ -297,23 +297,23 @@ function renderSupplies(){
   els.supplyList.className='supply-grid';
   els.supplyList.innerHTML=members.map((m,i)=>{
     const ap=armorPct(m);
-    const armor=ap===null?'--':\`\${ap.toFixed(0)}%\`;
-    const hp=m.hp===null||m.hp===undefined?'--':\`\${Math.round(m.hp)}\${m.maxHp?'/'+Math.round(m.maxHp):''}\`;
-    return \`<div class="supply-card">
-      <div class="supply-head"><b>\${htmlEscape(i===0?'我':m.name)}</b><span>\${htmlEscape(m.action||'')}</span></div>
-      <div class="supply-line"><span>主武器</span><strong>\${htmlEscape(m.equipment?.primary||'--')}</strong></div>
-      <div class="supply-line"><span>弹种</span><strong>\${htmlEscape(m.equipment?.ammoType||'--')}</strong></div>
-      <div class="supply-line"><span>生命 / 护甲</span><strong>\${hp} / \${armor}</strong></div>
-      <div class="supply-line"><span>剩余补给</span><strong>\${htmlEscape(supplyText(m))}</strong></div>
-    </div>\`;
+    const armor=ap===null?'--':`${ap.toFixed(0)}%`;
+    const hp=m.hp===null||m.hp===undefined?'--':`${Math.round(m.hp)}${m.maxHp?'/'+Math.round(m.maxHp):''}`;
+    return `<div class="supply-card">
+      <div class="supply-head"><b>${htmlEscape(i===0?'我':m.name)}</b><span>${htmlEscape(m.action||'')}</span></div>
+      <div class="supply-line"><span>主武器</span><strong>${htmlEscape(m.equipment?.primary||'--')}</strong></div>
+      <div class="supply-line"><span>弹种</span><strong>${htmlEscape(m.equipment?.ammoType||'--')}</strong></div>
+      <div class="supply-line"><span>生命 / 护甲</span><strong>${hp} / ${armor}</strong></div>
+      <div class="supply-line"><span>剩余补给</span><strong>${htmlEscape(supplyText(m))}</strong></div>
+    </div>`;
   }).join('');
 }
 
 function updateMetrics(){
   els.teamCount.textContent=state.teammates.size;
   els.contactCount.textContent=state.contacts.size;
-  els.frameRate.textContent=\`\${state.frameTimes.length} Hz\`;
-  els.latency.textContent=state.latency===null?'-- ms':\`\${Math.round(state.latency)} ms\`;
+  els.frameRate.textContent=`${state.frameTimes.length} Hz`;
+  els.latency.textContent=state.latency===null?'-- ms':`${Math.round(state.latency)} ms`;
 }
 
 function resizeCanvas(){
@@ -349,8 +349,8 @@ function draw(){
   for(const m of state.teammates.values())entity(m,m.downed?'#ff5c6c':'#4cf0a6',m.name,5);
   for(const e of state.contacts.values()){
     const th=threatFor(e); const alpha=.3+.7*th.stale;
-    const weapon=e.equipment?.primary?\` · \${e.equipment.primary}\`:'';
-    entity(e,\`rgba(255,92,108,\${alpha})\`,\`\${e.name} \${Math.round(th.distance)}m\${weapon}\`,5+th.score*3);
+    const weapon=e.equipment?.primary?` · ${e.equipment.primary}`:'';
+    entity(e,`rgba(255,92,108,${alpha})`,`${e.name} ${Math.round(th.distance)}m${weapon}`,5+th.score*3);
   }
   ctx.save();ctx.translate(cx,cy);ctx.fillStyle='#4de3ff';
   ctx.beginPath();ctx.moveTo(0,-10);ctx.lineTo(7,8);ctx.lineTo(0,5);ctx.lineTo(-7,8);ctx.closePath();ctx.fill();ctx.restore();
@@ -413,14 +413,14 @@ function startDemo(){
 els.connectBtn.addEventListener('click',connect);
 els.demoBtn.addEventListener('click',startDemo);
 els.voiceBtn.addEventListener('click',()=>{
-  state.voice=!state.voice;els.voiceBtn.textContent=\`语音：\${state.voice?'开':'关'}\`;
+  state.voice=!state.voice;els.voiceBtn.textContent=`语音：${state.voice?'开':'关'}`;
   if(!state.voice&&'speechSynthesis'in window)speechSynthesis.cancel();
 });
 els.clearBtn.addEventListener('click',()=>{
   state.teammates.clear();state.contacts.clear();state.self=null;els.eventLog.innerHTML='';analyze();
 });
 els.range.addEventListener('input',()=>{
-  state.range=num(els.range.value,120);els.rangeLabel.textContent=\`\${state.range}m\`;
+  state.range=num(els.range.value,120);els.rangeLabel.textContent=`${state.range}m`;
 });
 
 setInterval(()=>{
