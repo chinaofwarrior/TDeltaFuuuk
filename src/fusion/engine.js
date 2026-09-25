@@ -83,10 +83,11 @@ export class FusionEngine {
     if(this.seenObsIds.size>12000)for(const [k,v] of this.seenObsIds)if(v<now-30000)this.seenObsIds.delete(k);
     o.observer_id=agentId;
     if(o.subject.kind==='SELF'){
-      const old=this.players.get(agentId);
+      const old=this.players.get(agentId),clock=old?.clock||{};
+      if((clock[o.type]||0)>o.observed_at)return true;
       const state=mergeState(old?.state||{id:agentId,kind:'SELF'},o);
       state.id=agentId;
-      this.players.set(agentId,{state,lastSeen:now});
+      this.players.set(agentId,{state,lastSeen:now,clock:{...clock,[o.type]:o.observed_at}});
       return true;
     }
     if(o.subject.kind==='TEAMMATE'){
@@ -139,8 +140,7 @@ export class FusionEngine {
   worldState(viewerId=this.viewerId){
     const now=ms();this.decayNow(now);
     const viewer=this.players.get(viewerId)?.state;
-    const first=this.players.values().next().value?.state;
-    const self=viewer||first||{id:viewerId,kind:'SELF'};
+    const self=viewer||{id:viewerId,kind:'SELF',status:'NO_DATA'};
     const teammates={};
     for(const [id,v] of this.players)if(id!==self.id)teammates[id]={id,position:v.state.position||null,
       heading:v.state.heading??null,state:v.state,last_seen:v.lastSeen,age_ms:now-v.lastSeen};

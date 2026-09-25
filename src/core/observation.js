@@ -29,11 +29,11 @@ export function normalize(raw) {
   if (!SUBJECT_KINDS.includes(o.subject.kind)) throw new Error('invalid subject kind');
   if (o.position && (!Number.isFinite(o.position.x) || !Number.isFinite(o.position.y))) throw new Error('invalid position');
   if (o.distance_estimate !== undefined && o.distance_estimate < 0) throw new Error('negative distance');
-  if (o.confidence !== undefined && (o.confidence < 0 || o.confidence > 1)) throw new Error('confidence out of range');
+  if (o.confidence !== undefined && (typeof o.confidence!=='number'||!Number.isFinite(o.confidence)||o.confidence < 0 || o.confidence > 1)) throw new Error('confidence out of range');
   o.confidence = o.confidence ?? (o.source === 'UNKNOWN' || o.source === 'INFERRED' ? .35 : .8);
   o.observation_id = String(o.observation_id || genId('obs')).slice(0,128);
-  o.observed_at = o.observed_at || o.timestamp_wall_ms || Date.now();
-  if (!Number.isFinite(o.observed_at) || o.observed_at > Date.now()+30000) throw new Error('invalid observed_at');
+  o.observed_at=Number(o.observed_at||o.timestamp_wall_ms||Date.now());
+  if (!Number.isFinite(o.observed_at) || o.observed_at<1 || o.observed_at > Date.now()+30000) throw new Error('invalid observed_at');
   return o;
 }
 export function mergeSparse(base={}, incoming={}) {

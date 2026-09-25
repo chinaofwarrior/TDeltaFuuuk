@@ -63,7 +63,7 @@ export class HubClient {
         signal:AbortSignal.timeout(2500)});
       const body=await r.json().catch(()=>({}));
       this.setConnected(r.ok);
-      return {ok:r.ok,ack_ids:Array.isArray(body.ack_ids)?body.ack_ids:[]};
+      return {ok:r.ok,ack_ids:Array.isArray(body.ack_ids)?body.ack_ids:[],rejected_ids:Array.isArray(body.rejected_ids)?body.rejected_ids:[]};
     }catch(e){this.setConnected(false);return {ok:false,ack_ids:[]};}
   }
   async syncClock(){

@@ -42,8 +42,11 @@ export class ClockSync {
 
   // 一次往返：t1(本机) -> 远端 t2 -> t3(本机)
   record(t1Ms, remoteMs, t3Ms) {
-    const rtt = t3Ms - t1Ms;
-    const offset = remoteMs - (t1Ms + t3Ms) / 2;
+    const rtt=t3Ms-t1Ms;
+    if(!Number.isFinite(rtt)||rtt<0||rtt>2000||!Number.isFinite(remoteMs))
+      return {offsetMs:this.offsetMs,rttMs:this.rttMs,ignored:true};
+    const offset=remoteMs-(t1Ms+t3Ms)/2;
+    if(Math.abs(offset)>30000)return {offsetMs:this.offsetMs,rttMs:this.rttMs,ignored:true};
     // 简单指数平滑
     const k = 0.25;
     this.rttMs = this.rttMs === 0 ? rtt : this.rttMs * (1 - k) + rtt * k;

@@ -63,7 +63,7 @@
   <div class="map-wrap"><canvas id="map"></canvas></div>
   <div class="sidebar">
     <div class="card">
-      <h2>小队状态</h2><div id="peers" class="muted"></div>
+      <h2>小队状态</h2><div id="peers" class="muted"></div><div id="admin" class="muted"></div>
       <div id="team"></div>
     </div>
     <div class="card">
@@ -190,6 +190,16 @@ function renderPanels() {
   let html = memberRow('self(我)', self);
   for (const [id, t] of Object.entries(world.teammates)) html += memberRow(id, t.state || t);
   teamEl.innerHTML=html;document.getElementById('peers').textContent=peers.map(p=>p.name+' '+(p.online?'●在线':'○离线')).join(' / ');
+  const panel=document.getElementById('admin');panel.replaceChildren();
+  for(const peer of peers){
+    const button=document.createElement('button');button.textContent='更新'+peer.name+'邀请';
+    button.style.margin='2px';button.onclick=async()=>{
+      if(!confirm('更新凭证将断开旧客户端。确定更新 '+peer.name+' 吗？'))return;
+      const r=await fetch('/api/peers/rotate',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({id:peer.id})});
+      const j=await r.json();alert(r.ok?'新文件：'+j.file+'，请单独发给队友':'更新失败');
+    };panel.append(button);
+  }
 
   // 威胁
   const th=(tactics.threats||[]).map(t=>{

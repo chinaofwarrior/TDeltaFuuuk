@@ -128,7 +128,20 @@ export class Hub {
       if (req.method === 'GET' && p === '/api/events') return this.sse(res);
       if (req.method === 'GET' && p === '/api/time') return json(res, 200, { now_ms: Date.now() });
       if (req.method === 'GET' && p === '/api/accounts') return json(res, 200, this.listAccounts());
+      if(req.method==='GET'&&p==='/api/health')
+        return json(res,200,{ready:true,uptime_s:Math.floor(process.uptime()),peers:this.pairStatus(),
+          tracks:this.fusion.enemies.size,reports:this.fusion.reports.size});
       if(req.method==='GET' && p==='/api/peers')return json(res,200,this.pairStatus());
+      if(req.method==='POST' && p==='/api/peers/rotate'){
+        const b=await readBody(req,1024),id=b.id;
+        if(!Object.hasOwn(this.config.peers,id))return json(res,404,{error:'unknown peer'});
+        const newToken=randomBytes(24).toString('hex');
+        this.config.peers[id].token=newToken;saveJson(this.configPath,this.config);
+        const dir=join(dirname(this.configPath),'invites');ensureDir(dir);
+        saveJson(join(dir,this.config.peers[id].name+'.join.json'),{agentId:id,token:newToken,hubUrl:''});
+        this.peerStatusMap.delete(id);
+        return json(res,200,{ok:true,file:'invites/'+this.config.peers[id].name+'.join.json'});
+      }
       if(req.method==='POST' && p==='/api/report'){
         const b=await readBody(req,8192);
         if(!['CONTACT','ENEMY_REPORT','AUDIO_CONTACT','STATUS','SUPPLY_STATE','LOADOUT_STATE'].includes(b.type))return json(res,400,{error:'invalid report'});
@@ -196,19 +209,24 @@ export class Hub {
     const agentId=remote?authenticatedId:this.config.viewerId;
     if(remote&&body.agent_id&&body.agent_id!==agentId)return json(res,403,{error:'invalid member ID'});
     if(remote)this.peerStatusMap.set(agentId,{at:Date.now(),frames:(this.peerStatusMap.get(agentId)?.frames||0)+list.length});
-    const ack_ids=[];
+    const ack_ids=[],rejected_ids=[];
     for(const raw of list){
       if(!raw||typeof raw!=='object')continue;
-      if(remote&&!['SELF','OBSERVED_ENEMY','PREDICTED_ENEMY'].includes(raw.subject?.kind||'SELF'))continue;
+      if(remote&&!['SELF','OBSERVED_ENEMY','PREDICTED_ENEMY'].includes(raw.subject?.kind||'SELF')){
+        if(raw.observation_id)rejected_ids.push(raw.observation_id);
+        continue;
+      }
       const o={...raw,observer_id:agentId,source_instance:agentId};
       if(remote&&['OFFICIAL_API','COMMUNITY_API','AUTHORIZED_SDK'].includes(o.source)){
         o.claimed_source=o.source;
         o.source=(o.subject?.kind||'SELF')==='SELF'?'TEAM_SELF_REPORT':'TEAM_REPORT';
         o.confidence=Math.min(Number.isFinite(Number(o.confidence))?Number(o.confidence):.7,.75);
       }
-      if(this.fusion.ingest(o,{agentId})&&o.observation_id)ack_ids.push(o.observation_id);
+      if(this.fusion.ingest(o,{agentId})){
+        if(o.observation_id)ack_ids.push(o.observation_id);
+      }else if(o.observation_id)rejected_ids.push(o.observation_id);
     }
-    return json(res,200,{ok:true,ack_ids});
+    return json(res,200,{ok:true,ack_ids,rejected_ids});
   }
 
   // ---- SSE ----
