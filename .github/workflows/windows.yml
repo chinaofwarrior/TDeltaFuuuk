@@ -30,10 +30,10 @@ jobs:
       - name: Smoke run native host and bundled Hub EXE
         run: |
           $native=Start-Process -FilePath .\\dist\\native\\tdf-provider-host.exe -ArgumentList @('--dll', (Resolve-Path .\\dist\\native\\example-provider.dll).Path) -PassThru -RedirectStandardOutput native-smoke.log
-          Start-Sleep -Seconds 2
+          Start-Sleep -Seconds 3
           if(!$native.HasExited){Stop-Process -Id $native.Id -Force}
           $output=Get-Content native-smoke.log -Raw
-          if(!$output.Contains('"type":"hello"') -or !$output.Contains('"type":"observation"')){throw "Native DLL host smoke failed"}
+          if(!$output.Contains('"type":"hello"') -or !$output.Contains('"type":"observation"') -or !$output.Contains('LOADOUT_STATE') -or !$output.Contains('SUPPLY_STATE')){throw "Native DLL host smoke failed"}
           $env:TDF_NO_BROWSER='1'
           $env:TDF_NO_AUTO_AGENT='1'
           $exe=Start-Process -FilePath .\\dist\\TDeltaFuuuk.exe -PassThru -RedirectStandardOutput hub-smoke.log

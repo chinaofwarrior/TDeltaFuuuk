@@ -22,15 +22,26 @@ int wmain(int argc,wchar_t** argv){
  auto poll=(int(*)(TdfProviderHandle,TdfObservation*,uint32_t,uint32_t*))GetProcAddress(dll,"tdf_provider_poll");
  auto stop=(void(*)(TdfProviderHandle))GetProcAddress(dll,"tdf_provider_stop");
  auto destroy=(void(*)(TdfProviderHandle))GetProcAddress(dll,"tdf_provider_destroy");
+ auto poll_json=(int(*)(TdfProviderHandle,char*,uint32_t,uint32_t*))GetProcAddress(dll,"tdf_provider_poll_json");
  if(!version||!create||!start||!poll||!stop||!destroy||version()!=TDF_PROVIDER_ABI_VERSION){FreeLibrary(dll);return 4;}
  TdfHostApi api={submit};TdfProviderHandle h=nullptr;
  if(create(&api,"{}",&h)!=0||!h){FreeLibrary(dll);return 5;}
  if(start(h)!=0){destroy(h);FreeLibrary(dll);return 6;}
- puts("{\"type\":\"hello\",\"provider\":\"native-approved\",\"abi\":1,\"capabilities\":[\"SELF_POSITION\"],\"max_rate_hz\":20}");fflush(stdout);
+ if(poll_json)puts("{\"type\":\"hello\",\"provider\":\"native-approved\",\"abi\":1,\"capabilities\":[\"SELF_POSITION\",\"SELF_EQUIPMENT\",\"SELF_SUPPLIES\"],\"max_rate_hz\":20}");
+ else puts("{\"type\":\"hello\",\"provider\":\"native-approved\",\"abi\":1,\"capabilities\":[\"SELF_POSITION\"],\"max_rate_hz\":20}");
+ fflush(stdout);
  TdfObservation batch[128];uint32_t ticks=0;
  for(;;){uint32_t n=0;if(poll(h,batch,128,&n)!=0)break;
    if(n)submit(batch,n);
-   if(++ticks%40==0){puts("{\"type\":\"heartbeat\"}");fflush(stdout);}
+   if(++ticks%20==0 && poll_json){
+     char payload[4096]={0};uint32_t used=0;
+     if(poll_json(h,payload,sizeof(payload),&used)==0 && used>1 && used<sizeof(payload) &&
+        payload[0]=='{' && payload[used-1]=='}' && !memchr(payload,'\n',used) && !memchr(payload,'\r',used)){
+       fputs("{\"type\":\"observation\",\"observation\":",stdout);
+       fwrite(payload,1,used,stdout);fputs("}\n",stdout);fflush(stdout);
+     }
+   }
+   if(ticks%40==0){puts("{\"type\":\"heartbeat\"}");fflush(stdout);}
    std::this_thread::sleep_for(std::chrono::milliseconds(50));
  }
  stop(h);destroy(h);FreeLibrary(dll);return 0;

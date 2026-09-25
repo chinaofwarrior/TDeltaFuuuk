@@ -23,3 +23,6 @@ Agent 校验文件哈希才加载独立宿主。只允许接入经过授权的�
 ## 测试和 Windows 构建
 
 `node --test` 与 `node scripts/check.js`。Windows 生产包执行 `powershell -File scripts/build.ps1`（需要 Node22、Go1.23、MSVC）；GitHub `.github/workflows/windows.yml` 自动构建 Hub EXE、Agent EXE、Native Host、示例 DLL、Node 便携运行时，并上传完整目录和 SHA256。历史账号信息使用社区 API（`COMMUNITY_API`），还需实际社区服务实例联调；并无已证实的官方局内实时 API。
+
+
+原生 ABI v1 增加可选 `tdf_provider_poll_json`：20Hz 二进制位姿接口保持兼容，低频自有装备与补给由 JSON Observation 承载。使用此扩展的 DLL manifest capabilities 应包含 `SELF_POSITION`、`SELF_EQUIPMENT`、`SELF_SUPPLIES`。浏览器支持时可以按键触发语音报点；浏览器可能将声音发送给其在线语音识别服务，需要玩家主动授权。以上均不包含未授权游戏内数据提取。

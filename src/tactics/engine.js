@@ -148,7 +148,7 @@ export class TacticsEngine {
 }
 
 function summarizeSupply(state) {
-  const hp = state && state.hp !== undefined ? state.hp : (state && state.max_hp) || null;
+  const hp=state&&state.hp!==undefined?state.hp:null;
   const ammo=state&&(state.supplies?.ammo??state.ammo);
   const medkits=state&&(state.supplies?.medkits??state.medkits);
   const status = {};

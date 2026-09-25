@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {setTimeout as sleep} from 'node:timers/promises';
 import {FusionEngine} from '../src/fusion/engine.js';
 import {Agent} from '../src/agent.js';
+import {ProviderManager} from '../src/providers/manager.js';
 import {Hub} from '../src/hub.js';
 const obs=(type,kind,id,x={})=>({type,subject:{kind,id},source:'TEAM_SELF_REPORT',confidence:1,...x});
 test('independent authenticated player states with zero-value supplies',()=>{
@@ -64,4 +65,16 @@ test('real HTTP rejects spoofing; Agent->Hub connects own slot',async()=>{
   const bad=await fetch(url+'/ingest',{method:'POST',headers:{authorization:'Bearer '+h.config.peers.T2.token,'content-type':'application/json'},body:JSON.stringify({agent_id:'T3',observations:[]})});
   assert.equal(bad.status,403);
  }finally{a?.stop();h.stop();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('native manifest enforces exact approved DLL hash',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'tdf-dll-'));
+ try{
+  writeFileSync(join(dir,'bad.dll'),'not-a-real-dll');
+  const spec=join(dir,'bad.provider.json');
+  writeFileSync(spec,JSON.stringify({dll:'bad.dll',sha256:'00',capabilities:['SELF_POSITION']}));
+  const manager=new ProviderManager({providersDir:dir});
+  const out=await manager.start(spec);assert.equal(out.ok,false);
+  manager.stopAll();
+ }finally{rmSync(dir,{recursive:true,force:true});}
 });

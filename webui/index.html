@@ -79,7 +79,7 @@
       <div id="alerts"></div>
     </div>
     <div class="card">
-      <h2>手动报点 / 队友加入</h2><input id="sector" placeholder="例如：北楼二层" style="background:#101c29;color:#fff;padding:5px;width:65%" /><button id="report-btn">报点</button><p class="muted">主机将 invites 里的专属 .join.json 交给对应队友，放在 Agent 同目录。</p></div><div class="card"><h2>三角洲账号（社区服务）</h2>
+      <h2>手动报点 / 队友加入</h2><input id="sector" placeholder="例如：北楼二层" style="background:#101c29;color:#fff;padding:5px;width:65%" /><button id="report-btn">报点</button><button id="voice-input-btn" title="浏览器语音服务可能需要联网">按键语音报点</button><p class="muted">主机将 invites 里的专属 .join.json 交给对应队友，放在 Agent 同目录。</p></div><div class="card"><h2>三角洲账号（社区服务）</h2>
       <div id="accounts" class="muted">未绑定</div>
       <div style="margin-top:8px; display:flex; gap:6px;">
         <button id="btn-qr" class="primary">扫码登录</button>
@@ -192,9 +192,13 @@ function renderPanels() {
   teamEl.innerHTML=html;document.getElementById('peers').textContent=peers.map(p=>p.name+' '+(p.online?'●在线':'○离线')).join(' / ');
 
   // 威胁
-  const th=tactics.threats||[];document.getElementById('reports').textContent=(world.reports||[]).map(r=>r.type+': '+(r.sector||((r.bearing??'?')+'°方向，距离未知'))).join(' / ');
+  const th=(tactics.threats||[]).map(t=>{
+    const e=(world.enemies||[]).find(x=>x.id===t.id);
+    return {...t,weapon:e?.state?.equipment?.primary||'装备未知',
+      armor:e?.state?.equipment?.armor||''};
+  });document.getElementById('reports').textContent=(world.reports||[]).map(r=>r.type+': '+(r.sector||((r.bearing??'?')+'°方向，距离未知'))).join(' / ');
   document.getElementById('threats').innerHTML = th.length
-    ? th.map((t) => `<div class="row"><span>${esc(t.id)}</span><span class="tag ${t.level}">${t.level} · ${t.distance}m</span></div>`).join('')
+    ? th.map((t) => `<div class="row"><span>${esc(t.id)}</span><span class="tag ${t.level}">${t.level} · ${t.distance}m · ${esc(t.weapon)} ${esc(t.armor)}</span></div>`).join('')
     : '<div class="muted">暂无威胁</div>';
 
   // 战术态势
@@ -206,7 +210,7 @@ function renderPanels() {
     <div class="row"><span>合围态势</span><span class="tag ${enc.level}">${enc.level} (${enc.sectors}扇区)</span></div>
     <div class="row"><span>孤立队员</span><span>${iso.length ? iso.map(i=>i.id).join(', ') : '无'}</span></div>
     <div class="row"><span>交叉火力</span><span>${cf.length}</span></div>
-    <div class="row"><span>撤离方位</span><span class="mono">${esc.bearing !== null ? esc.bearing + '°' : '—'}</span></div>`;
+    <div class="row"><span>避让方向（未验证道路）</span><span class="mono">${esc.bearing !== null ? esc.bearing + '°' : '—'}</span></div>`;
 
   // 告警
   const al = tactics.alerts || [];
@@ -216,8 +220,8 @@ function renderPanels() {
 }
 
 function memberRow(id, st) {
-  const hp = st && st.hp !== undefined ? st.hp : (st && st.max_hp);
-  const hpPct = hp !== undefined && hp !== null ? Math.max(0, Math.min(100, hp)) : 100;
+  const hp=st&&st.hp!==undefined?st.hp:null;
+  const hpPct=hp!==undefined&&hp!==null?Math.max(0,Math.min(100,hp)):0;
   const hpClass = hpPct <= 25 ? 'EMPTY' : hpPct <= 50 ? 'LOWs' : 'ENOUGH';
   const ammo=st&&(st.supplies?.ammo??st.ammo);
   const med=st&&(st.supplies?.medkits??st.medkits);const weapon=esc(st?.equipment?.primary||'?');
@@ -247,8 +251,8 @@ document.getElementById('btn-qr').onclick = async () => {
   if (!j.ok) { box.innerHTML = `<div class="muted">失败: ${j.error}</div>`; return; }
   const qr = j.qr || {}; const safe=s=>esc(s);
   box.innerHTML = `<div class="muted">请扫码，随后轮询状态</div>`;
-  if (qr.qr_url) box.innerHTML += `<div class="muted"><a href="${safe(qr.qr_url)}">打开二维码</a></div>`;
-  if (qr.qr_data || qr.qr_img) box.innerHTML += `<img src="${safe(qr.qr_img || qr.qr_data)}" alt="qr">`;
+  if (typeof qr.qr_url==='string' && /^https:\/\//i.test(qr.qr_url)) box.innerHTML += `<div class="muted"><a href="${safe(qr.qr_url)}">打开二维码</a></div>`;
+  if (/^(https:\/\/|data:image\/png;base64,)/i.test(qr.qr_img || qr.qr_data || '')) box.innerHTML += `<img src="${safe(qr.qr_img || qr.qr_data)}" alt="qr">`;
   window.__qrKey = qr.key || qr.ticket || qr.key;
   box.innerHTML += `<div style="margin-top:6px;"><button onclick="pollLogin()">轮询登录状态</button></div>`;
 };
@@ -268,6 +272,18 @@ document.getElementById('btn-fetch').onclick = async () => {
 document.getElementById('report-btn').onclick=async()=>{
  const sector=document.getElementById('sector').value.trim();
  if(sector)await fetch('/api/report',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'ENEMY_REPORT',sector})});
+};
+document.getElementById('voice-input-btn').onclick=()=>{
+ const API=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!API){alert('浏览器不支持语音识别，请手动报点');return;}
+ const r=new API();r.lang='zh-CN';r.continuous=false;
+ r.onresult=async e=>{
+  const sector=e.results?.[0]?.[0]?.transcript||'';
+  if(!sector)return;document.getElementById('sector').value=sector;
+  await fetch('/api/report',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({type:'ENEMY_REPORT',sector,source:'VOICE'})});
+ };
+ r.start();
 };
 document.getElementById('voice-btn').onclick=()=>{voice=!voice;document.getElementById('voice-btn').textContent=voice?'关闭中文播报':'开启中文播报';if(!voice&&window.speechSynthesis)window.speechSynthesis.cancel();};
 setInterval(async()=>{

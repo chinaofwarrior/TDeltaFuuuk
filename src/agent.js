@@ -103,11 +103,18 @@ export class Agent {
     logger.info('agent', 'Agent 启动完成');
   }
 
-  routeHttp(req, res) {
+  routeHttp(req,res){
+    if(req.headers.origin){
+      try{const origin=new URL(req.headers.origin);
+        if(origin.hostname!=='127.0.0.1'||Number(origin.port||80)!==this.config.agentHttpPort){
+          res.writeHead(403);res.end();return;
+        }
+      }catch{res.writeHead(403);res.end();return;}
+    }
     if(req.method==='GET'&&req.url==='/'){
       res.writeHead(200,{'content-type':'text/html; charset=utf-8'});
       const connected=this.hubClient?.connected?'已连接主机':'等待主机';
-      return res.end('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="refresh" content="3"><style>body{background:#0b1520;color:#dcf6ef;font:18px sans-serif;padding:50px}b{color:#53dca6}</style><h2>TDeltaAgent 队友客户端</h2><p>身份：'+this.agentId+'</p><p>状态：<b>'+connected+'</b></p><p>待发送关键事件：'+this.pending.size+'</p><p>关闭客户端即停止共享。</p></html>');
+      return res.end('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="refresh" content="3"><style>body{background:#0b1520;color:#dcf6ef;font:18px sans-serif;padding:50px}b{color:#53dca6}</style><h2>TDeltaAgent 队友客户端</h2><p>身份：'+this.agentId+'</p><p>状态：<b>'+connected+'</b></p><p>待发送关键事件：'+this.pending.size+'</p><p>关闭客户端即停止共享。</p><hr><p>人工报点（只分享您输入的信息）</p><input id="s" placeholder="北楼二层等"><button onclick="send()">发送</button><script>async function send(){const sector=document.getElementById("s").value;if(!sector)return;await fetch("/ingest",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({type:"ENEMY_REPORT",subject:{kind:"OBSERVED_ENEMY",id:"manual-local"},sector,source:"MANUAL"})});document.getElementById("s").value="";}</script></html>');
     }
     if (req.method === 'POST' && req.url === '/ingest') {
       let body = '';

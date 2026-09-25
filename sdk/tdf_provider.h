@@ -1,5 +1,5 @@
 // TDF Provider C ABI v1 —— 参考实现（《开发方案》第三节）。
-// 本 Node 版本用「子进程 + NDJSON」实现 Provider（见 src/providers/protocol.js），
+// Node Provider 与原生 DLL 分别在独立子进程中运行（见 native/provider_host.cpp）。
 // 提供同等能力且进程级崩溃隔离。此头文件保留，供未来 C/C++/Rust 原生 Provider 使用。
 //
 // 纯 C ABI，不暴露 C++ class，便于 Rust/C++/Go/C#/Zig 接入。
@@ -64,6 +64,11 @@ TDF_PROVIDER_API int      tdf_provider_start(TdfProviderHandle handle);
 TDF_PROVIDER_API int      tdf_provider_poll(TdfProviderHandle handle, TdfObservation* out_batch, uint32_t max_count, uint32_t* out_count);
 TDF_PROVIDER_API void     tdf_provider_stop(TdfProviderHandle handle);
 TDF_PROVIDER_API void     tdf_provider_destroy(TdfProviderHandle handle);
+
+// Optional v1 extension for low-frequency, explicitly authorized SELF data.
+// Poll up to one complete UTF-8 JSON Observation; binary pose ABI remains unchanged.
+TDF_PROVIDER_API int tdf_provider_poll_json(TdfProviderHandle handle,
+    char* output, uint32_t capacity, uint32_t* out_length);
 
 #ifdef __cplusplus
 }
