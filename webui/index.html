@@ -192,7 +192,7 @@ function renderPanels() {
   teamEl.innerHTML=html;document.getElementById('peers').textContent=peers.map(p=>p.name+' '+(p.online?'●在线':'○离线')).join(' / ');
   const panel=document.getElementById('admin');
   const signature=peers.map(p=>p.id+':'+p.name).join('|');
-  if(panel.dataset.signature===signature)return;
+  if(panel.dataset.signature!==signature){
   panel.dataset.signature=signature;
   panel.replaceChildren();
   for(const peer of peers){
@@ -203,6 +203,7 @@ function renderPanels() {
         body:JSON.stringify({id:peer.id})});
       const j=await r.json();alert(r.ok?'新文件：'+j.file+'，请单独发给队友':'更新失败');
     };panel.append(button);
+  }
   }
 
   // 威胁
