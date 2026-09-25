@@ -85,8 +85,8 @@ export class DFAccountAdapter {
     return {
       type: 'ACCOUNT',
       subject: { kind: 'SELF', id: accountId },
-      source: 'OFFICIAL_API',
-      confidence: 1.0,
+      source: 'COMMUNITY_API',
+      confidence: 0.85,
       account: profile,
       timestamp_wall_ms: wallMs(),
     };
@@ -111,6 +111,7 @@ export class DFAccountAdapter {
         body: opts.body ? JSON.stringify(opts.body) : undefined,
         signal: controller.signal,
       });
+      if(!res.ok)throw new Error('Community API HTTP '+res.status);
       const text = await res.text();
       try {
         return JSON.parse(text);

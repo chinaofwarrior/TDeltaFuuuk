@@ -39,7 +39,7 @@ function main() {
     type: 'hello',
     provider: PROVIDER,
     abi: ABI_VERSION,
-    capabilities: ['ENEMY_CONTACT'],
+    capabilities: ['ENEMY_CONTACT','SELF_HEALTH','SELF_SUPPLIES','AUDIO_EVENT'],
     max_rate_hz: 10,
   }));
 
@@ -53,7 +53,7 @@ function main() {
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/report') {
       let body = '';
-      req.on('data', (c) => { body += c; });
+      req.on('data', (c) => { body += c; if(body.length>8192)req.destroy(); });
       req.on('end', () => {
         try {
           emit(JSON.parse(body));

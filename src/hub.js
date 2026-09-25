@@ -7,6 +7,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import os from 'node:os';
+import {randomBytes,timingSafeEqual} from 'node:crypto';
 
 import { FusionEngine } from './fusion/engine.js';
 import { TacticsEngine } from './tactics/engine.js';
@@ -25,7 +26,9 @@ const DEFAULTS = {
   ingestPort: PORTS.HUB_INGEST,
   discoveryPort: PORTS.DISCOVERY,
   dfBaseUrl: '',
-  sseIntervalMs: 250,
+  sseIntervalMs: 50,
+  viewerId: 'T1',
+  peers: {},
 };
 
 export class Hub {
@@ -36,14 +39,31 @@ export class Hub {
       this.config.sharedToken = genId('tk').toLowerCase().replace('_', '');
       saveJson(this.configPath, this.config);
     }
-    this.accountsStore = new CredentialStore(join(ROOT, 'tdelta-accounts.enc.json'));
+    // Separate per-member pairing credentials. Never put them in discovery packets.
+    if(!this.config.peers)this.config.peers={};
+    for(const [id,name] of [['T2','二号'],['T3','三号'],['T4','四号']]){
+      if(!this.config.peers[id])this.config.peers[id]={name,token:randomBytes(24).toString('hex')};
+    }
+    this.config.peers={...this.config.peers};
+    saveJson(this.configPath,this.config);
+    const localAgent=join(dirname(this.configPath),'TDeltaAgent.config.json');
+    if(!existsSync(localAgent))saveJson(localAgent,{agentId:this.config.viewerId,
+      sharedToken:this.config.sharedToken,hubUrl:'http://127.0.0.1:'+this.config.ingestPort,
+      providersDir:join(ROOT,'src','providers')});
+    const invites=join(dirname(this.configPath),'invites');ensureDir(invites);
+    for(const [id,peer] of Object.entries(this.config.peers)){
+      const path=join(invites,peer.name+'.join.json');
+      if(!existsSync(path))saveJson(path,{agentId:id,token:peer.token,hubUrl:''});
+    }
+    this.peerStatusMap=new Map();
+    this.accountsStore = new CredentialStore(join(dirname(this.configPath), 'tdelta-accounts.enc.json'));
     this.accounts = this.accountsStore.load(); // { [accountId]: { token } }
-    this.fusion = new FusionEngine({});
+    this.fusion = new FusionEngine({viewerId:this.config.viewerId});
     this.tactics = new TacticsEngine({});
     this.sseClients = new Set();
     this.dfAdapters = {}; // accountId -> DFAccountAdapter
     this.accountProfiles = {}; // accountId -> 已拉取的账号资料
-    this.discovery = new DiscoveryServer({ hubHttpPort: this.config.hubHttpPort, name: this.config.name, token: this.config.sharedToken });
+    this.discovery = new DiscoveryServer({ ingestPort: this.config.ingestPort, name: this.config.name, port:this.config.discoveryPort });
     this.server = null;
     this.ingestServer = null;
     this.timers = [];
@@ -54,22 +74,26 @@ export class Hub {
     await this.discovery.start();
 
     // 控制台 HTTP（loopback only，对应原始 README「只绑定 loopback」）
-    this.server = http.createServer((req, res) => this.route(req, res));
-    this.server.listen(this.config.hubHttpPort, '127.0.0.1', () => {
+    this.server=http.createServer((req,res)=>{Promise.resolve(this.route(req,res)).catch(e=>{
+      if(!res.writableEnded&&!res.destroyed)json(res,e.status||500,{error:e.status?e.message:'request failed'});
+    });});
+    await new Promise((ok,fail)=>{this.server.once('error',fail);this.server.listen(this.config.hubHttpPort, '127.0.0.1', () => {ok();
       logger.info('hub', `控制台: http://127.0.0.1:${this.config.hubHttpPort}`);
-    });
+    });});
 
     // 队友上报（0.0.0.0）
-    this.ingestServer = http.createServer((req, res) => this.routeIngest(req, res));
-    this.ingestServer.listen(this.config.ingestPort, '0.0.0.0', () => {
+    this.ingestServer=http.createServer((req,res)=>{Promise.resolve(this.routeIngest(req,res)).catch(e=>{
+      if(!res.writableEnded&&!res.destroyed)json(res,e.status||500,{error:e.status?e.message:'request failed'});
+    });});
+    await new Promise((ok,fail)=>{this.ingestServer.once('error',fail);this.ingestServer.listen(this.config.ingestPort, '0.0.0.0', () => {ok();
       logger.info('hub', `队友上报: 0.0.0.0:${this.config.ingestPort}`);
-    });
+    });});
 
     // 融合/战术引擎周期：衰减 + SSE 广播
     const loop = setInterval(() => this.tick(), this.config.sseIntervalMs);
     this.timers.push(loop);
 
-    logger.info('hub', `共享 Token: ${this.config.sharedToken}`);
+    logger.info('hub', '分别发送 invites/ 中对应的 .join.json 给各位队友；请勿公开或互相转发');
     logger.info('hub', `Hub「${this.config.name}」启动完成`);
   }
 
@@ -78,9 +102,10 @@ export class Hub {
     this.fusion.decayNow();
     const ws = this.fusion.worldState();
     const tactics = this.tactics.evaluate(ws);
-    const payload = JSON.stringify({ type: 'state', world: ws, tactics });
-    for (const client of this.sseClients) {
-      client.write(`data: ${payload}\n\n`);
+    const payload = JSON.stringify({ type: 'state', world: ws, tactics, peers:this.pairStatus() });
+    for(const client of this.sseClients){
+      if(client.destroyed||client.writableLength>262144){this.sseClients.delete(client);client.end();continue;}
+      client.write('data: '+payload+'\n\n');
     }
   }
 
@@ -88,6 +113,14 @@ export class Hub {
   async route(req, res) {
     const url = new URL(req.url, 'http://localhost');
     const p = url.pathname;
+    const host=(req.headers.host||'').split(':')[0].toLowerCase();
+    if(!['localhost','127.0.0.1','[::1]'].includes(host))return json(res,403,{error:'local console only'});
+    if(req.headers.origin){
+      try{const origin=new URL(req.headers.origin);
+        if(!['localhost','127.0.0.1'].includes(origin.hostname)||Number(origin.port||80)!==this.config.hubHttpPort)
+           return json(res,403,{error:'invalid origin'});
+      }catch{return json(res,403,{error:'invalid origin'});}
+    }
     try {
       if (req.method === 'GET' && (p === '/' || p === '/index.html')) return serveFile(res, join(UI_DIR, 'index.html'));
       if (req.method === 'GET' && p === '/api/state') return json(res, 200, { world: this.fusion.worldState(), tactics: this.tactics.evaluate(this.fusion.worldState()) });
@@ -95,8 +128,18 @@ export class Hub {
       if (req.method === 'GET' && p === '/api/events') return this.sse(res);
       if (req.method === 'GET' && p === '/api/time') return json(res, 200, { now_ms: Date.now() });
       if (req.method === 'GET' && p === '/api/accounts') return json(res, 200, this.listAccounts());
+      if(req.method==='GET' && p==='/api/peers')return json(res,200,this.pairStatus());
+      if(req.method==='POST' && p==='/api/report'){
+        const b=await readBody(req,8192);
+        if(!['CONTACT','ENEMY_REPORT','AUDIO_CONTACT','STATUS','SUPPLY_STATE','LOADOUT_STATE'].includes(b.type))return json(res,400,{error:'invalid report'});
+        const personal=['STATUS','SUPPLY_STATE','LOADOUT_STATE'].includes(b.type);
+        const kind=personal?'SELF':'OBSERVED_ENEMY';
+        const ok=this.fusion.ingest({...b,subject:{kind,id:personal?this.config.viewerId:(b.target_id||'manual')},
+          source:'MANUAL',confidence:b.confidence??.65},{agentId:this.config.viewerId});
+        return json(res,ok?200:400,{ok});
+      }
       if (req.method === 'GET' && p === '/api/providers') return json(res, 200, this.fusionProviderList());
-      if (req.method === 'POST' && p === '/api/ingest') return this.handleIngest(req, res);
+      if (req.method === 'POST' && p === '/api/ingest') return this.handleIngest(req, res, false);
       if (req.method === 'POST' && p === '/api/accounts/login/qr') return this.handleLoginQR(req, res);
       if (req.method === 'POST' && p === '/api/accounts/login/poll') return this.handleLoginPoll(req, res);
       if (req.method === 'POST' && p === '/api/accounts/fetch') return this.handleAccountFetch(req, res);
@@ -104,41 +147,63 @@ export class Hub {
       return json(res, 404, { error: 'not found' });
     } catch (e) {
       logger.error('hub', `路由异常 ${p}: ${e.message}`);
-      return json(res, 500, { error: e.message });
+      return json(res,e.status||500,{error:e.status?e.message:'request failed'});
     }
   }
 
   // 队友上报（0.0.0.0:17889，需共享 Token）
-  routeIngest(req, res) {
-    if (req.method === 'POST' && (req.url === '/ingest' || req.url === '/api/ingest')) {
-      return this.handleIngest(req, res);
+  routeIngest(req,res){
+    let id=this.memberId(req.headers.authorization);
+    const local=['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+    if(!id&&local&&(req.headers.authorization||'').startsWith('Bearer ')){
+      const given=Buffer.from(req.headers.authorization.slice(7)),expected=Buffer.from(this.config.sharedToken);
+      if(given.length===expected.length&&timingSafeEqual(given,expected))id=this.config.viewerId;
     }
-    return json(res, 404, { error: 'not found' });
+    if(!id)return json(res,401,{error:'unauthorized'});
+    if(req.method==='GET'&&req.url==='/time')return json(res,200,{now_ms:Date.now()});
+    if(req.method==='POST'&&req.url==='/ingest')return this.handleIngest(req,res,true,id);
+    return json(res,404,{error:'not found'});
+  }
+  memberId(authorization){
+    if(typeof authorization!=='string'||!authorization.startsWith('Bearer '))return null;
+    const given=Buffer.from(authorization.slice(7));
+    for(const [id,p] of Object.entries(this.config.peers)){
+      const expected=Buffer.from(p.token);
+      if(given.length===expected.length&&timingSafeEqual(given,expected))return id;
+    }
+    return null;
+  }
+  pairStatus(){
+    return Object.entries(this.config.peers).map(([id,p])=>{
+      const seen=this.peerStatusMap.get(id);
+      return {id,name:p.name,online:!!seen&&Date.now()-seen.at<5000,
+        age_ms:seen?Date.now()-seen.at:null,frames:seen?.frames||0};
+    });
   }
 
   // ---- ingest ----
-  async handleIngest(req, res) {
-    const body = await readBody(req);
-    const token = req.headers['x-tdf-token'] || body.token || '';
-    if (token !== this.config.sharedToken) {
-      return json(res, 401, { error: 'invalid token' });
+  async handleIngest(req,res,remote=false,authenticatedId=null){
+    if(!remote){
+      const a=req.headers.authorization||'';
+      const given=Buffer.from(a.startsWith('Bearer ')?a.slice(7):'');
+      const expected=Buffer.from(this.config.sharedToken);
+      if(given.length!==expected.length||!timingSafeEqual(given,expected))
+        return json(res,401,{error:'unauthorized'});
     }
-    let list;
-    if (Array.isArray(body.observations)) list = body.observations;
-    else if (body.observation) list = [body.observation];
-    else if (body.type) list = [body];
-    else return json(res, 400, { error: 'no observations' });
-
-    const agentId = body.agent_id || 'unknown';
-    let n = 0;
-    for (const raw of list) {
-      const obs = { ...raw };
-      if (!obs.observer_id) obs.observer_id = agentId;
-      if (!obs.source_instance) obs.source_instance = agentId;
-      this.fusion.ingest(obs);
-      n++;
+    const body=await readBody(req);
+    const list=Array.isArray(body.observations)?body.observations:body.observation?[body.observation]:body.type?[body]:[];
+    if(list.length>128)return json(res,413,{error:'batch too large'});
+    const agentId=remote?authenticatedId:this.config.viewerId;
+    if(remote&&body.agent_id&&body.agent_id!==agentId)return json(res,403,{error:'invalid member ID'});
+    if(remote)this.peerStatusMap.set(agentId,{at:Date.now(),frames:(this.peerStatusMap.get(agentId)?.frames||0)+list.length});
+    const ack_ids=[];
+    for(const raw of list){
+      if(!raw||typeof raw!=='object')continue;
+      if(remote&&!['SELF','OBSERVED_ENEMY','PREDICTED_ENEMY'].includes(raw.subject?.kind||'SELF'))continue;
+      const o={...raw,observer_id:agentId,source_instance:agentId};
+      if(this.fusion.ingest(o,{agentId})&&o.observation_id)ack_ids.push(o.observation_id);
     }
-    return json(res, 200, { ok: true, ingested: n });
+    return json(res,200,{ok:true,ack_ids});
   }
 
   // ---- SSE ----
@@ -234,8 +299,8 @@ export class Hub {
   stop() {
     for (const t of this.timers) clearInterval(t);
     this.discovery.stop();
-    if (this.server) this.server.close();
-    if (this.ingestServer) this.ingestServer.close();
+    if (this.server?.listening) this.server.close();
+    if (this.ingestServer?.listening) this.ingestServer.close();
     for (const c of this.sseClients) c.end();
   }
 }
@@ -256,13 +321,13 @@ function serveFile(res, filePath) {
   res.end(content);
 }
 
-function readBody(req) {
-  return new Promise((resolve) => {
-    let body = '';
-    req.on('data', (c) => { body += c; });
-    req.on('end', () => {
-      try { resolve(body ? JSON.parse(body) : {}); } catch { resolve({}); }
-    });
+function readBody(req,limit=262144){
+  return new Promise((resolve,reject)=>{
+    let body='';let finished=false;
+    req.on('data',c=>{body+=c;if(body.length>limit&&!finished){finished=true;reject(Object.assign(new Error('too large'),{status:413}));req.destroy();}});
+    req.on('end',()=>{if(finished)return;try{resolve(body?JSON.parse(body):{});}
+      catch{reject(Object.assign(new Error('invalid JSON'),{status:400}));}});
+    req.on('error',e=>{if(!finished)reject(e);});
   });
 }
 

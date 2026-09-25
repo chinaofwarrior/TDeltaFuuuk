@@ -1,31 +1,32 @@
-# TDeltaFuuuk 构建/打包脚本（Node 零依赖，无编译步骤）
-# 用法: .\scripts\build.ps1
-# 输出: dist\ 目录（可直接分发给队友）
-
-$ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $PSScriptRoot
-$dist = Join-Path $root "dist"
-
-Write-Host "==> 校验源模块" -ForegroundColor Cyan
-node (Join-Path $root "scripts\check.js")
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-Write-Host "==> 清理 dist" -ForegroundColor Cyan
-if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
-New-Item -ItemType Directory -Path $dist | Out-Null
-
-Write-Host "==> 复制运行所需文件" -ForegroundColor Cyan
-Copy-Item (Join-Path $root "src") $dist -Recurse
-Copy-Item (Join-Path $root "webui") $dist -Recurse
-Copy-Item (Join-Path $root "package.json") $dist
-Copy-Item (Join-Path $root "sdk") $dist -Recurse
-Copy-Item (Join-Path $root "README.md") $dist
-
-Write-Host "==> 生成默认配置" -ForegroundColor Cyan
-$agentCfg = @{ sharedToken = ""; hubUrl = ""; agentId = ""; providersDir = "src\providers" } | ConvertTo-Json
-Set-Content -Path (Join-Path $dist "TDeltaAgent.config.json") -Value $agentCfg -Encoding UTF8
-
-Write-Host ""
-Write-Host "构建完成: $dist" -ForegroundColor Green
-Write-Host "  Hub:   node `"$dist\src\hub.js`"" -ForegroundColor Green
-Write-Host "  Agent: node `"$dist\src\agent.js`"" -ForegroundColor Green
+$ErrorActionPreference="Stop"
+$root=Split-Path -Parent $PSScriptRoot
+Set-Location $root
+node scripts/check.js
+if($LASTEXITCODE -ne 0){throw "module check failed"}
+node --test
+if($LASTEXITCODE -ne 0){throw "tests failed"}
+Remove-Item dist -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -Type Directory -Force dist,dist/runtime,dist/native | Out-Null
+Copy-Item src dist -Recurse
+Copy-Item webui dist -Recurse
+Copy-Item package.json dist
+Copy-Item README.md dist
+Copy-Item (Get-Command node.exe).Source dist/runtime/node.exe
+Push-Location cmd/launcher
+try{
+ go build -trimpath -ldflags "-s -w -X main.role=hub" -o ../../dist/TDeltaFuuuk.exe .
+ if($LASTEXITCODE -ne 0){throw "Hub EXE failed"}
+ go build -trimpath -ldflags "-s -w -X main.role=agent" -o ../../dist/TDeltaAgent.exe .
+ if($LASTEXITCODE -ne 0){throw "Agent EXE failed"}
+}finally{Pop-Location}
+if(Get-Command cl.exe -ErrorAction SilentlyContinue){
+ Push-Location native
+ try{
+ cl /nologo /W4 /EHsc /std:c++17 /Fe:../dist/native/tdf-provider-host.exe provider_host.cpp
+ if($LASTEXITCODE -ne 0){throw "Native host failed"}
+ cl /nologo /W4 /EHsc /std:c++17 /LD /Fe:../dist/native/example-provider.dll example_provider.cpp
+ if($LASTEXITCODE -ne 0){throw "Native sample DLL failed"}
+ }finally{Pop-Location}
+}
+Get-ChildItem dist -Recurse -Include *.exe,*.dll | Get-FileHash -Algorithm SHA256 |
+ ForEach-Object { "$($_.Hash) $($_.Path)" } | Set-Content dist/SHA256SUMS.txt

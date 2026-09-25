@@ -63,11 +63,11 @@
   <div class="map-wrap"><canvas id="map"></canvas></div>
   <div class="sidebar">
     <div class="card">
-      <h2>小队状态</h2>
+      <h2>小队状态</h2><div id="peers" class="muted"></div>
       <div id="team"></div>
     </div>
     <div class="card">
-      <h2>威胁目标</h2>
+      <h2>威胁目标</h2><div id="reports" class="muted"></div>
       <div id="threats"></div>
     </div>
     <div class="card">
@@ -75,11 +75,11 @@
       <div id="tactics"></div>
     </div>
     <div class="card">
-      <h2>语音告警</h2>
+      <h2>语音告警</h2><button id="voice-btn">开启中文播报</button>
       <div id="alerts"></div>
     </div>
     <div class="card">
-      <h2>三角洲账号</h2>
+      <h2>手动报点 / 队友加入</h2><input id="sector" placeholder="例如：北楼二层" style="background:#101c29;color:#fff;padding:5px;width:65%" /><button id="report-btn">报点</button><p class="muted">主机将 invites 里的专属 .join.json 交给对应队友，放在 Agent 同目录。</p></div><div class="card"><h2>三角洲账号（社区服务）</h2>
       <div id="accounts" class="muted">未绑定</div>
       <div style="margin-top:8px; display:flex; gap:6px;">
         <button id="btn-qr" class="primary">扫码登录</button>
@@ -94,7 +94,7 @@
 const canvas = document.getElementById('map');
 const ctx = canvas.getContext('2d');
 let world = { self: {}, teammates: {}, enemies: [] };
-let tactics = {};
+let tactics = {}; let peers=[];let voice=false;const spoken=new Set();const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const M_PER_PX = 0.5; // 缩放：像素每米，动态调整
 
 function resize() {
@@ -189,12 +189,12 @@ function renderPanels() {
   const teamEl = document.getElementById('team');
   let html = memberRow('self(我)', self);
   for (const [id, t] of Object.entries(world.teammates)) html += memberRow(id, t.state || t);
-  teamEl.innerHTML = html;
+  teamEl.innerHTML=html;document.getElementById('peers').textContent=peers.map(p=>p.name+' '+(p.online?'●在线':'○离线')).join(' / ');
 
   // 威胁
-  const th = tactics.threats || [];
+  const th=tactics.threats||[];document.getElementById('reports').textContent=(world.reports||[]).map(r=>r.type+': '+(r.sector||((r.bearing??'?')+'°方向，距离未知'))).join(' / ');
   document.getElementById('threats').innerHTML = th.length
-    ? th.map((t) => `<div class="row"><span>${t.id}</span><span class="tag ${t.level}">${t.level} · ${t.distance}m</span></div>`).join('')
+    ? th.map((t) => `<div class="row"><span>${esc(t.id)}</span><span class="tag ${t.level}">${t.level} · ${t.distance}m</span></div>`).join('')
     : '<div class="muted">暂无威胁</div>';
 
   // 战术态势
@@ -219,12 +219,12 @@ function memberRow(id, st) {
   const hp = st && st.hp !== undefined ? st.hp : (st && st.max_hp);
   const hpPct = hp !== undefined && hp !== null ? Math.max(0, Math.min(100, hp)) : 100;
   const hpClass = hpPct <= 25 ? 'EMPTY' : hpPct <= 50 ? 'LOWs' : 'ENOUGH';
-  const ammo = st && st.ammo;
-  const med = st && st.medkits;
+  const ammo=st&&(st.supplies?.ammo??st.ammo);
+  const med=st&&(st.supplies?.medkits??st.medkits);const weapon=esc(st?.equipment?.primary||'?');
   return `<div style="margin-bottom:8px;">
-    <div class="row"><span>${id}</span><span class="tag ${hpClass}">HP ${hp ?? '?'}</span></div>
+    <div class="row"><span>${esc(id)}</span><span class="tag ${hpClass}">HP ${hp ?? '?'}</span></div>
     <div class="bar"><i style="width:${hpPct}%;${hpPct<=25?'background:#ff5d5d':hpPct<=50?'background:#ffb547':''}"></i></div>
-    <div class="row muted"><span>弹药 ${ammo ?? '?'}</span><span>医疗 ${med ?? '?'}</span></div>
+    <div class="row muted"><span>弹药 ${ammo ?? '?'}</span><span>医疗 ${med ?? '?'}</span></div><div class="row muted">武器 ${weapon} · 护甲 ${esc(st?.equipment?.armor||'?')}</div>
   </div>`;
 }
 
@@ -265,6 +265,19 @@ document.getElementById('btn-fetch').onclick = async () => {
   document.getElementById('qrbox').innerHTML = `<div class="muted mono">${j.ok ? JSON.stringify(j.profile, null, 1).slice(0, 600) : j.error}</div>`;
 };
 
+document.getElementById('report-btn').onclick=async()=>{
+ const sector=document.getElementById('sector').value.trim();
+ if(sector)await fetch('/api/report',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'ENEMY_REPORT',sector})});
+};
+document.getElementById('voice-btn').onclick=()=>{voice=!voice;document.getElementById('voice-btn').textContent=voice?'关闭中文播报':'开启中文播报';if(!voice&&window.speechSynthesis)window.speechSynthesis.cancel();};
+setInterval(async()=>{
+ try{peers=await (await fetch('/api/peers')).json();}catch{}
+ if(voice&&window.speechSynthesis)for(const a of (tactics.alerts||[])){
+    const id=a.category+':'+a.text;if(spoken.has(id))continue;
+    spoken.add(id);if(spoken.size>50)spoken.clear();
+    const utterance=new SpeechSynthesisUtterance(a.text);utterance.lang='zh-CN';speechSynthesis.speak(utterance);
+ }
+},1000);
 connect();
 refreshAccounts();
 </script>

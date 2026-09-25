@@ -125,7 +125,7 @@ export class TacticsEngine {
     const dx = selfPos.x - ec.x;
     const dy = selfPos.y - ec.y;
     const bearing = (Math.atan2(dy, dx) * 180) / Math.PI;
-    return { bearing: Math.round((bearing + 360) % 360), rationale: 'away_from_enemy_centroid' };
+    return { bearing: Math.round((bearing + 360) % 360), rationale: 'unverified_direction_no_map',route_verified:false };
   }
 
   // ---- 补给状态（ENOUGH/LOW/EMPTY） ----
@@ -149,8 +149,8 @@ export class TacticsEngine {
 
 function summarizeSupply(state) {
   const hp = state && state.hp !== undefined ? state.hp : (state && state.max_hp) || null;
-  const ammo = state && state.ammo;
-  const medkits = state && state.medkits;
+  const ammo=state&&(state.supplies?.ammo??state.ammo);
+  const medkits=state&&(state.supplies?.medkits??state.medkits);
   const status = {};
   if (hp !== null) status.health = hp <= 25 ? 'EMPTY' : hp <= 50 ? 'LOW' : 'ENOUGH';
   if (ammo !== undefined) status.ammo = ammo <= 0 ? 'EMPTY' : ammo <= 30 ? 'LOW' : 'ENOUGH';

@@ -1,272 +1,160 @@
-// 融合 + 航迹引擎（对应《开发方案》Batch 2，第四/五/十一/十二/十三节）。
-// 职责：去重、时间对齐、实体关联、证据融合、航迹生命周期、置信度/不确定度衰减。
-// 输出统一 WorldState。
-
-import { normalize, SUBJECT_KINDS } from '../core/observation.js';
-import { wallMs, monotonicMs } from '../core/clock.js';
-import { logger } from '../util.js';
-
-// ---- 航迹（Track） ----
+// Live fusion: independently authenticated player states, event-only uncertain reports.
+import { normalize, mergeSparse } from '../core/observation.js';
+const ms=()=>Date.now();
+function mergeState(old, o) {
+  const next = {...old};
+  for (const key of ['hp','max_hp','heading','action','downed','stance','ammo','medkits','armor_repair','smoke','grenades']) if (o[key]!==undefined && o[key]!==null) next[key]=o[key];
+  if (o.position) next.position=mergeSparse(next.position || {},o.position);
+  if (o.equipment) next.equipment=mergeSparse(next.equipment || {},o.equipment);
+  if (o.supplies) next.supplies=mergeSparse(next.supplies || {},o.supplies);
+  // Accept low-frequency flat status fields from manual providers.
+  for (const key of ['ammo','medkits','armor_repair','smoke','grenades']) if(o[key]!==undefined && o[key]!==null) {
+    next.supplies={...(next.supplies || {}),[key]:o[key]};
+  }
+  return next;
+}
 class Track {
-  constructor(id, kind, obs, nowMs) {
-    this.id = id;
-    this.kind = kind;
-    this.position = obs.position ? { ...obs.position } : null;
-    this.velocity = { vx: 0, vy: 0, vz: 0 };
-    this.heading = obs.heading ?? null;
-    this.sigma = 6.0; // 不确定度半径（米）
-    this.confidence = obs.confidence ?? 0.5;
-    this.sources = new Set([obs.source]);
-    this.observers = new Set(obs.observer_id ? [obs.observer_id] : []);
-    this.createdAt = nowMs;
-    this.lastSeen = nowMs;
-    this.lastUpdate = nowMs;
-    this.evidence = [];
-    this.state = {}; // 稀疏状态（hp/equipment/supplies）
+  constructor(id,kind,obs,now) {
+    this.id=id;this.kind=kind;this.position=obs.position?{...obs.position}:null;
+    this.velocity={vx:0,vy:0,vz:0};this.heading=obs.heading??null;
+    this.sigma=obs.position?6:null;this.baseConfidence=obs.confidence??.35;
+    this.sources=new Set([obs.source+'|'+(obs.observer_id||'')]);
+    this.observers=new Set(obs.observer_id?[obs.observer_id]:[]);
+    this.lastSeen=now;this.lastPredict=now;this.state=mergeState({},obs);
+    this.evidence=[{source:obs.source,observer:obs.observer_id||null,at:now}];
   }
-
-  // 预测到当前时刻：位置按速度外推，不确定度增长（《方案》§12 σ(t)=σ0+k·Δt）
-  predict(nowMs) {
-    const dt = (nowMs - this.lastUpdate) / 1000;
-    if (this.position) {
-      this.position.x += this.velocity.vx * dt;
-      this.position.y += this.velocity.vy * dt;
-      this.position.z += this.velocity.vz * dt;
+  predict(now) {
+    const dt=Math.max(0,(now-this.lastPredict)/1000);
+    if(dt===0)return;
+    if(this.position){
+      this.position.x+=this.velocity.vx*dt;
+      this.position.y+=this.velocity.vy*dt;
+      this.position.z=(this.position.z||0)+this.velocity.vz*dt;
+      this.sigma=Math.min(150,(this.sigma||6)+1.2*dt);
     }
-    this.sigma += 0.8 * dt; // 不确定度随时间增长
+    this.lastPredict=now;
   }
-
-  // Alpha-Beta 滤波更新（《方案》§13 第一版先做稳）
-  update(obs, nowMs) {
-    const dt = Math.max((nowMs - this.lastUpdate) / 1000, 0.001);
-    const alpha = 0.6;
-    const beta = 0.2;
-
-    if (obs.position && this.position) {
-      const px = obs.position.x - this.position.x;
-      const py = obs.position.y - this.position.y;
-      const pz = (obs.position.z ?? this.position.z ?? 0) - (this.position.z ?? 0);
-      const estVx = dt > 0 ? px / dt : 0;
-      const estVy = dt > 0 ? py / dt : 0;
-      this.position.x += alpha * px;
-      this.position.y += alpha * py;
-      this.position.z = (this.position.z ?? 0) + alpha * pz;
-      this.velocity.vx += beta * (estVx - this.velocity.vx);
-      this.velocity.vy += beta * (estVy - this.velocity.vy);
-      this.sigma = Math.max(1.5, this.sigma * 0.6); // 有新观测 → 不确定度收缩
+  update(obs,now){
+    this.predict(now);
+    const dt=Math.max(.05,(now-this.lastSeen)/1000);
+    if(obs.position){
+      if(this.position){
+        const dx=obs.position.x-this.position.x,dy=obs.position.y-this.position.y;
+        const dz=(obs.position.z||0)-(this.position.z||0);
+        this.position={...this.position,x:this.position.x+.7*dx,y:this.position.y+.7*dy,z:(this.position.z||0)+.7*dz,
+          floor:obs.position.floor??this.position.floor};
+        const beta=.12/Math.max(.5,dt);
+        this.velocity.vx+=beta*dx;this.velocity.vy+=beta*dy;this.velocity.vz+=beta*dz;
+        this.sigma=Math.max(1.5,(this.sigma||6)*.65);
+      }else{this.position={...obs.position};this.sigma=6;}
     }
-
-    if (obs.heading !== undefined && obs.heading !== null) this.heading = obs.heading;
-
-    // 证据融合：独立来源按 (1-∏(1-c)) 组合，同源取最大值
-    if (obs.confidence !== undefined && obs.confidence !== null) {
-      if (!this.sources.has(obs.source)) {
-        this.confidence = 1 - (1 - this.confidence) * (1 - obs.confidence);
-        this.sources.add(obs.source);
-      } else {
-        this.confidence = Math.max(this.confidence, obs.confidence);
-      }
-    }
-    if (obs.observer_id) this.observers.add(obs.observer_id);
-
-    this.state = mergeState(this.state, obs);
-    this.evidence.push({ source: obs.source, at: nowMs });
-    if (this.evidence.length > 32) this.evidence.shift();
-    this.lastSeen = nowMs;
-    this.lastUpdate = nowMs;
+    if(obs.heading!==undefined)this.heading=obs.heading;
+    const sourceKey=obs.source+'|'+(obs.observer_id||'');
+    if(!this.sources.has(sourceKey)){
+      this.baseConfidence=1-(1-this.baseConfidence)*(1-(obs.confidence??.35));
+      this.sources.add(sourceKey);
+    }else this.baseConfidence=Math.max(this.baseConfidence,obs.confidence??.35);
+    if(obs.observer_id)this.observers.add(obs.observer_id);
+    this.state=mergeState(this.state,obs);
+    this.evidence.push({source:obs.source,observer:obs.observer_id||null,at:now});
+    if(this.evidence.length>32)this.evidence.shift();
+    this.lastSeen=now;
   }
-
-  get sourceDiversity() {
-    return this.sources.size;
-  }
-
-  stale(nowMs, ttlMs) {
-    return nowMs - this.lastSeen > ttlMs;
+  snapshot(now){
+    const age=now-this.lastSeen;
+    return {id:this.id,kind:this.kind,position:this.position,velocity:this.velocity,heading:this.heading,
+      sigma:this.sigma,confidence:Math.round(this.baseConfidence*Math.exp(-Math.max(0,age)/14000)*100)/100,
+      source:[...new Set(this.evidence.map(e=>e.source))],source_diversity:this.sources.size,
+      observers:[...this.observers],last_seen:this.lastSeen,age_ms:age,state:this.state};
   }
 }
-
-function mergeState(base, obs) {
-  const out = { ...base };
-  if (obs.hp !== undefined) out.hp = obs.hp;
-  if (obs.max_hp !== undefined) out.max_hp = obs.max_hp;
-  if (obs.equipment) out.equipment = { ...(out.equipment || {}), ...obs.equipment };
-  if (obs.supplies) out.supplies = { ...(out.supplies || {}), ...obs.supplies };
-  if (obs.bearing !== undefined) out.bearing = obs.bearing;
-  if (obs.distance_estimate !== undefined) out.distance_estimate = obs.distance_estimate;
-  return out;
-}
-
-// ---- 融合引擎 ----
 export class FusionEngine {
-  constructor({ selfId = 'T1', gateFactor = 2.5, enemyTtlMs = 15000 } = {}) {
-    this.selfId = selfId;
-    this.gateFactor = gateFactor;
-    this.enemyTtlMs = enemyTtlMs;
-    this.tracks = new Map(); // id -> Track
-    this.seenObsIds = new Set();
-    this.selfState = { id: selfId, kind: 'SELF' };
-    this.lastDecay = monotonicMs();
+  constructor({viewerId='T1',enemyTtlMs=15000,peerTtlMs=6000}={}){
+    this.viewerId=viewerId;this.enemyTtlMs=enemyTtlMs;this.peerTtlMs=peerTtlMs;
+    this.players=new Map();this.enemies=new Map();this.reports=new Map();this.seenObsIds=new Map();
   }
-
-  // 入口：处理一条原始 Observation
-  ingest(raw) {
-    let obs;
-    try {
-      obs = normalize(raw);
-    } catch (e) {
-      logger.warn('fusion', `丢弃非法 observation: ${e.message}`);
-      return;
+  ingest(raw,{agentId='local'}={}){
+    let o;try{o=normalize(raw);}catch{return false;}
+    const now=ms();
+    if(o.observed_at<now-60000)return false;
+    const key=agentId+':'+o.observation_id;
+    if(this.seenObsIds.has(key))return true;
+    this.seenObsIds.set(key,now);
+    if(this.seenObsIds.size>12000)for(const [k,v] of this.seenObsIds)if(v<now-30000)this.seenObsIds.delete(k);
+    o.observer_id=agentId;
+    if(o.subject.kind==='SELF'){
+      const old=this.players.get(agentId);
+      const state=mergeState(old?.state||{id:agentId,kind:'SELF'},o);
+      state.id=agentId;
+      this.players.set(agentId,{state,lastSeen:now});
+      return true;
     }
-    // 去重
-    if (obs.observation_id && this.seenObsIds.has(obs.observation_id)) return;
-    if (obs.observation_id) {
-      this.seenObsIds.add(obs.observation_id);
-      if (this.seenObsIds.size > 10000) this.seenObsIds.clear();
+    if(o.subject.kind==='TEAMMATE'){
+      // A peer report is evidence, not authoritative state of a different authenticated player.
+      const rid='report:'+o.observation_id;
+      this.reports.set(rid,{id:rid,type:'TEAM_REPORT',sector:o.sector||null,
+        text:o.text||'队友状态报告',observer_id:agentId,at:now,confidence:o.confidence,ttl_ms:8000});
+      return true;
     }
-
-    const nowMs = wallMs();
-    this._decay(nowMs);
-
-    const kind = obs.subject && obs.subject.kind;
-    if (kind === 'SELF') {
-      this._updateSelf(obs, nowMs);
-    } else if (kind === 'TEAMMATE') {
-      this._updateTrack(obs.subject.id, 'TEAMMATE', obs, nowMs);
-    } else if (kind === 'OBSERVED_ENEMY' || kind === 'PREDICTED_ENEMY') {
-      this._updateEnemy(obs, kind, nowMs);
+    if(o.subject.kind!=='OBSERVED_ENEMY' && o.subject.kind!=='PREDICTED_ENEMY')return true;
+    const observer=this.players.get(agentId)?.state;
+    const pos=resolvePosition(o,observer);
+    if(!pos){
+      const rid='report:'+o.observation_id;
+      this.reports.set(rid,{id:rid,type:o.type,sector:o.sector||null,bearing:o.bearing??null,
+        distance_estimate:o.distance_estimate??null,observer_id:agentId,at:now,
+        confidence:o.confidence,ttl_ms:Math.min(15000,o.ttl_ms||10000)});
+      return true;
     }
-    // 其它类型（ACCOUNT 等）由上层单独处理，不影响世界状态
+    const kind=o.subject.kind;
+    const id=this.associate(o,pos,kind,now) || (o.subject.id && o.subject.id!=='E-MANUAL'?o.subject.id: o.observation_id);
+    o.position=pos;
+    const old=this.enemies.get(id);
+    if(old)old.update(o,now);else this.enemies.set(id,new Track(id,kind,o,now));
+    return true;
   }
-
-  _updateSelf(obs, nowMs) {
-    this.selfState = mergeState(this.selfState, obs);
-    if (obs.position) this.selfState.position = { ...obs.position };
-    if (obs.heading !== undefined && obs.heading !== null) this.selfState.heading = obs.heading;
-    this.selfState.source = obs.source;
-  }
-
-  _updateTrack(id, kind, obs, nowMs) {
-    let t = this.tracks.get(id);
-    if (!t) {
-      t = new Track(id, kind, obs, nowMs);
-      this.tracks.set(id, t);
-    } else {
-      t.update(obs, nowMs);
+  associate(o,pos,kind,now){
+    if(o.subject.id && this.enemies.has(o.subject.id)) {
+      const known=this.enemies.get(o.subject.id);
+      if(known.kind===kind && now-known.lastSeen<10000 && known.position &&
+        Math.hypot(known.position.x-pos.x,known.position.y-pos.y)<Math.max(8,(known.sigma||5)*2.5))return known.id;
     }
-  }
-
-  _updateEnemy(obs, kind, nowMs) {
-    const pos = resolveEnemyPosition(obs, this._observerPosition(obs));
-    if (!pos) return; // 无法定位的敌情（如仅 sector），暂不建航迹
-
-    // 关联到已有敌航迹
-    const existing = this._associateEnemy(pos, nowMs);
-    if (existing) {
-      existing.update({ ...obs, position: pos }, nowMs);
-      return;
-    }
-    const id = obs.subject && obs.subject.id ? obs.subject.id : `E-${Math.floor(nowMs)}-${Math.floor(Math.random() * 1000)}`;
-    const t = new Track(id, kind, { ...obs, position: pos }, nowMs);
-    this.tracks.set(id, t);
-  }
-
-  _observerPosition(obs) {
-    const oid = obs.observer_id;
-    if (oid && oid !== this.selfId) {
-      const t = this.tracks.get(oid);
-      if (t && t.position) return { position: t.position, heading: t.heading };
-    }
-    const sp = this.selfState.position;
-    return { position: sp, heading: this.selfState.heading };
-  }
-
-  // 关联评分：Score = w_d·d + w_t·Δt（《方案》§13 的简化版，Mahalanobis 门控）
-  _associateEnemy(pos, nowMs) {
-    let best = null;
-    let bestScore = Infinity;
-    for (const t of this.tracks.values()) {
-      if (t.kind !== 'OBSERVED_ENEMY' && t.kind !== 'PREDICTED_ENEMY') continue;
-      if (!t.position) continue;
-      const d = Math.hypot(t.position.x - pos.x, t.position.y - pos.y);
-      const dtSec = (nowMs - t.lastSeen) / 1000;
-      // 门控：距离须在不确定度允许范围内
-      if (d > this.gateFactor * Math.max(t.sigma, 3)) continue;
-      const score = d + 0.5 * dtSec * 5;
-      if (score < bestScore) {
-        bestScore = score;
-        best = t;
-      }
+    let best=null,bestD=Infinity;
+    for(const t of this.enemies.values()){
+      if(t.kind!==kind||!t.position||now-t.lastSeen>10000)continue;
+      if(pos.floor!==undefined && t.position.floor!==undefined && pos.floor!==t.position.floor)continue;
+      t.predict(now);
+      const d=Math.hypot(t.position.x-pos.x,t.position.y-pos.y);
+      const gate=Math.max(4,(t.sigma||6)*2);
+      if(d<gate && d<bestD){bestD=d;best=t.id;}
     }
     return best;
   }
-
-  // 周期性衰减（置信度下降、不确定度增长、超时航迹清除）
-  _decay(nowMs) {
-    for (const t of this.tracks.values()) {
-      t.predict(nowMs);
-      if (t.kind === 'OBSERVED_ENEMY' || t.kind === 'PREDICTED_ENEMY') {
-        if (t.stale(nowMs, this.enemyTtlMs)) {
-          this.tracks.delete(t.id);
-        }
-      }
-    }
+  decayNow(now=ms()){
+    for(const [id,t] of this.enemies){t.predict(now);if(now-t.lastSeen>this.enemyTtlMs)this.enemies.delete(id);}
+    for(const [id,r] of this.reports)if(now-r.at>r.ttl_ms)this.reports.delete(id);
+    for(const [id,v] of this.players)if(now-v.lastSeen>this.peerTtlMs)this.players.delete(id);
+    for(const [id,t] of this.seenObsIds)if(now-t>30000)this.seenObsIds.delete(id);
   }
-
-  decayNow() {
-    this._decay(wallMs());
-  }
-
-  // 组装世界状态
-  worldState() {
-    const nowMs = wallMs();
-    const teammates = {};
-    const enemies = [];
-    for (const t of this.tracks.values()) {
-      const rec = {
-        id: t.id,
-        kind: t.kind,
-        position: t.position,
-        heading: t.heading,
-        velocity: t.velocity,
-        sigma: Math.round(t.sigma * 10) / 10,
-        confidence: Math.round(t.confidence * 100) / 100,
-        source: [...t.sources],
-        source_diversity: t.sourceDiversity,
-        observers: [...t.observers],
-        last_seen: t.lastSeen,
-        age_ms: nowMs - t.lastSeen,
-        state: t.state,
-      };
-      if (t.kind === 'TEAMMATE') teammates[t.id] = rec;
-      else enemies.push(rec);
-    }
-    return {
-      self: { ...this.selfState },
-      teammates,
-      enemies,
-      updated_at: nowMs,
-    };
+  worldState(viewerId=this.viewerId){
+    const now=ms();this.decayNow(now);
+    const viewer=this.players.get(viewerId)?.state;
+    const first=this.players.values().next().value?.state;
+    const self=viewer||first||{id:viewerId,kind:'SELF'};
+    const teammates={};
+    for(const [id,v] of this.players)if(id!==self.id)teammates[id]={id,position:v.state.position||null,
+      heading:v.state.heading??null,state:v.state,last_seen:v.lastSeen,age_ms:now-v.lastSeen};
+    return {self,viewer_id:self.id,teammates,
+      enemies:[...this.enemies.values()].map(t=>t.snapshot(now)),
+      reports:[...this.reports.values()].map(r=>({...r,age_ms:now-r.at})),updated_at:now};
   }
 }
-
-// 把敌情 Observation 解析为世界坐标位置
-function resolveEnemyPosition(obs, observer) {
-  // 1) 直接带位置（ENTITY_STATE）
-  if (obs.position && obs.position.x !== undefined && obs.position.y !== undefined) {
-    return { x: obs.position.x, y: obs.position.y, z: obs.position.z ?? 0, floor: obs.position.floor };
-  }
-  // 2) 方位 + 距离（CONTACT / AUDIO_CONTACT），相对观察者朝向
-  const bearing = obs.bearing;
-  const dist = obs.distance_estimate;
-  if (bearing !== undefined && observer && observer.position) {
-    const heading = observer.heading ?? 0;
-    const worldBearing = ((heading + bearing) * Math.PI) / 180;
-    const d = dist ?? 20;
-    return {
-      x: observer.position.x + Math.cos(worldBearing) * d,
-      y: observer.position.y + Math.sin(worldBearing) * d,
-      z: observer.position.z ?? 0,
-    };
-  }
-  return null;
+function resolvePosition(o,observer){
+  if(o.position)return {...o.position};
+  // Unknown range remains an uncertain bearing/sector report; never forge a 20m coordinate.
+  if(o.bearing==null || o.distance_estimate==null || !observer?.position)return null;
+  const theta=((observer.heading||0)+o.bearing)*Math.PI/180;
+  return {x:observer.position.x+Math.cos(theta)*o.distance_estimate,
+    y:observer.position.y+Math.sin(theta)*o.distance_estimate,
+    z:observer.position.z||0,floor:observer.position.floor};
 }

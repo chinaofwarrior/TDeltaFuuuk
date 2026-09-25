@@ -3,21 +3,24 @@
 // 健康检查（心跳）、崩溃隔离与自动重启、把 Observation 路由到总线。
 
 import { spawn } from 'node:child_process';
-import { readdirSync, existsSync } from 'node:fs';
-import { join, extname } from 'node:path';
+import { readdirSync, existsSync, readFileSync } from 'node:fs';
+import {createHash} from 'node:crypto';
+import { join, extname, dirname, resolve, sep } from 'node:path';
+import {fileURLToPath} from 'node:url';
 import { createInterface } from 'node:readline';
 import { logger, genId } from '../util.js';
-import { parseHello, decodeLine } from './protocol.js';
+import { parseHello, decodeLine, observationCapability } from './protocol.js';
 
 const HELLO_TIMEOUT_MS = 5000;
 const HEARTBEAT_TIMEOUT_MS = 8000;
 const MAX_RESTARTS = 5;
 
 export class ProviderManager {
-  constructor({ providersDir, onObservation, runtime = 'node' } = {}) {
+  constructor({ providersDir, onObservation, runtime = process.execPath } = {}) {
     this.providersDir = providersDir;
     this.onObservation = onObservation || (() => {});
     this.runtime = runtime;
+    this.args=args||[scriptPath];this.allowed=allowed;
     this.instances = new Map(); // providerId -> ProviderInstance
   }
 
@@ -25,7 +28,7 @@ export class ProviderManager {
   discover() {
     if (!this.providersDir || !existsSync(this.providersDir)) return [];
     return readdirSync(this.providersDir)
-      .filter((f) => f.endsWith('.provider.js'))
+      .filter((f) => f.endsWith('.provider.js') || f.endsWith('.provider.json'))
       .map((f) => join(this.providersDir, f));
   }
 
@@ -42,7 +45,21 @@ export class ProviderManager {
   start(scriptPath) {
     return new Promise((resolve) => {
       const providerId = genId('prov');
-      const inst = new ProviderInstance(this, providerId, scriptPath, this.runtime, this.onObservation);
+      let runtime=this.runtime,args=[scriptPath],allowed=null;
+      try{
+        if(scriptPath.endsWith('.provider.json')){
+          const manifest=JSON.parse(readFileSync(scriptPath,'utf8'));
+          const parent=resolve(dirname(scriptPath)),dll=resolve(parent,manifest.dll||'');
+          if(!manifest.dll||!dll.startsWith(parent+sep)||!dll.toLowerCase().endsWith('.dll'))throw Error('invalid DLL location');
+          const hash=createHash('sha256').update(readFileSync(dll)).digest('hex');
+          if(!manifest.sha256||hash!==manifest.sha256.toLowerCase())throw Error('DLL checksum mismatch');
+          const root=resolve(dirname(fileURLToPath(import.meta.url)),'..','..');
+          runtime=resolve(root,'native','tdf-provider-host.exe');
+          if(!existsSync(runtime))throw Error('native host missing');
+          args=['--dll',dll];allowed=Array.isArray(manifest.capabilities)?manifest.capabilities:[];
+        }
+      }catch(e){logger.error('providers','拒绝插件: '+e.message);resolve({providerId,ok:false});return;}
+      const inst=new ProviderInstance(this,providerId,scriptPath,runtime,this.onObservation,args,allowed);
       this.instances.set(providerId, inst);
       inst.start().then((ok) => resolve({ providerId, ok }));
     });
@@ -59,7 +76,7 @@ export class ProviderManager {
 }
 
 class ProviderInstance {
-  constructor(mgr, id, scriptPath, runtime, onObservation) {
+  constructor(mgr, id, scriptPath, runtime, onObservation, args=null, allowed=null) {
     this.mgr = mgr;
     this.id = id;
     this.scriptPath = scriptPath;
@@ -72,12 +89,14 @@ class ProviderInstance {
     this.startedAt = 0;
     this.stopped = false;
     this.heartbeatTimer = null;
+    this.restarting = false;
   }
 
   start() {
+    this.stopped=false;this.restarting=false;this.hello=null;
     return new Promise((resolve) => {
       this.startedAt = Date.now();
-      const args = this.runtime === 'node' ? [this.scriptPath] : [this.scriptPath];
+      const args=this.args;
       let proc;
       try {
         proc = spawn(this.runtime, args, {
@@ -99,7 +118,7 @@ class ProviderInstance {
       let helloTimer = setTimeout(() => {
         if (!this.hello) {
           logger.error('providers', `${this.nameHint()} 握手超时`);
-          this.restart();
+          resolve(false);this.restart();
         }
       }, HELLO_TIMEOUT_MS);
 
@@ -124,10 +143,14 @@ class ProviderInstance {
       const parsed = parseHello(msg);
       if (parsed && parsed.error) {
         logger.error('providers', `${this.nameHint()} 握手失败: ${parsed.error}`);
-        this.restart();
+        resolve(false);this.restart();
         return;
       }
-      this.hello = parsed;
+      if(this.allowed&&parsed.capabilities.some(c=>!this.allowed.includes(c))){
+        logger.error('providers','plugin capability violates allowlist');
+        resolve(false);this.restart();return;
+      }
+      this.hello=parsed;
       clearTimeout(helloTimer);
       this.startHeartbeat();
       logger.info('providers', `Provider 就绪: ${parsed.provider} (abi=${parsed.abi}, caps=${parsed.capabilities.join(',') || 'none'})`);
@@ -140,12 +163,14 @@ class ProviderInstance {
       return;
     }
     if (msg.type === 'observation' && msg.observation) {
-      this.onObservation(msg.observation, { providerId: this.id, provider: this.hello.provider });
+      const cap=observationCapability(msg.observation);
+      if(cap&&this.hello.capabilities.includes(cap))this.onObservation(msg.observation,{providerId:this.id,provider:this.hello.provider});
       return;
     }
     if (msg.type === 'batch' && Array.isArray(msg.observations)) {
       for (const o of msg.observations) {
-        this.onObservation(o, { providerId: this.id, provider: this.hello.provider });
+        const cap=observationCapability(o);
+        if(cap&&this.hello.capabilities.includes(cap))this.onObservation(o,{providerId:this.id,provider:this.hello.provider});
       }
     }
   }
@@ -160,7 +185,8 @@ class ProviderInstance {
   }
 
   restart() {
-    if (this.stopped) return;
+    if (this.stopped||this.restarting) return;
+    this.restarting=true;
     this.restarts += 1;
     if (this.restarts > MAX_RESTARTS) {
       logger.error('providers', `${this.nameHint()} 重启次数超限，放弃`);
@@ -169,7 +195,7 @@ class ProviderInstance {
     }
     logger.info('providers', `重启 ${this.nameHint()} (#${this.restarts})`);
     this.stop(false);
-    setTimeout(() => this.start(), 1000);
+    setTimeout(() => {this.restarting=false;void this.start();}, 1000);
   }
 
   stop(remove = true) {
