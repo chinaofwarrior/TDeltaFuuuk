@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync,mkdirSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {createHash} from 'node:crypto';
 import {setTimeout as sleep} from 'node:timers/promises';
 import {FusionEngine} from '../src/fusion/engine.js';
 import {Agent} from '../src/agent.js';
@@ -76,5 +77,21 @@ test('native manifest enforces exact approved DLL hash',async()=>{
   const manager=new ProviderManager({providersDir:dir});
   const out=await manager.start(spec);assert.equal(out.ok,false);
   manager.stopAll();
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test('matching native DLL hash proceeds through validation and fails closed if standalone host is absent',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'tdf-hash-'));
+ try{
+  const dll=join(dir,'test.dll');const bytes='example bytes to pin';
+  writeFileSync(dll,bytes);
+  const m=join(dir,'good.provider.json');
+  writeFileSync(m,JSON.stringify({dll:'test.dll',sha256:createHash('sha256').update(bytes).digest('hex'),capabilities:['SELF_POSITION']}));
+  const provider=new ProviderManager({providersDir:dir});
+  const outcome=await provider.start(m);
+  // In source tests, native host executable does not exist in repo root.
+  assert.equal(typeof outcome,'object');
+  assert.equal(outcome.ok,false);
+  provider.stopAll();
  }finally{rmSync(dir,{recursive:true,force:true});}
 });

@@ -5,7 +5,7 @@
 import { spawn } from 'node:child_process';
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import {createHash} from 'node:crypto';
-import { join, extname, dirname, resolve, sep } from 'node:path';
+import { join, extname, dirname, resolve as resolvePath, sep } from 'node:path';
 import {fileURLToPath} from 'node:url';
 import { createInterface } from 'node:readline';
 import { logger, genId } from '../util.js';
@@ -48,12 +48,12 @@ export class ProviderManager {
       try{
         if(scriptPath.endsWith('.provider.json')){
           const manifest=JSON.parse(readFileSync(scriptPath,'utf8'));
-          const parent=resolve(dirname(scriptPath)),dll=resolve(parent,manifest.dll||'');
+          const parent=resolvePath(dirname(scriptPath)),dll=resolvePath(parent,manifest.dll||'');
           if(!manifest.dll||!dll.startsWith(parent+sep)||!dll.toLowerCase().endsWith('.dll'))throw Error('invalid DLL location');
           const hash=createHash('sha256').update(readFileSync(dll)).digest('hex');
           if(!manifest.sha256||hash!==manifest.sha256.toLowerCase())throw Error('DLL checksum mismatch');
-          const root=resolve(dirname(fileURLToPath(import.meta.url)),'..','..');
-          runtime=resolve(root,'native','tdf-provider-host.exe');
+          const root=resolvePath(dirname(fileURLToPath(import.meta.url)),'..','..');
+          runtime=resolvePath(root,'native','tdf-provider-host.exe');
           if(!existsSync(runtime))throw Error('native host missing');
           args=['--dll',dll];allowed=Array.isArray(manifest.capabilities)?manifest.capabilities:[];
         }
