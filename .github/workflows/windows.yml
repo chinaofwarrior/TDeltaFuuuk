@@ -35,7 +35,7 @@ jobs:
           $output=Get-Content native-smoke.log -Raw
           if(!$output.Contains('"type":"hello"') -or !$output.Contains('"type":"observation"') -or !$output.Contains('LOADOUT_STATE') -or !$output.Contains('SUPPLY_STATE')){throw "Native DLL host smoke failed"}
           $env:TDF_NO_BROWSER='1'
-          $env:TDF_NO_AUTO_AGENT='1'
+          $env:TDF_NO_AUTO_AGENT='0'
           $exe=Start-Process -FilePath .\\dist\\TDeltaFuuuk.exe -PassThru -RedirectStandardOutput hub-smoke.log
           try{
             $ready=$false
@@ -44,6 +44,15 @@ jobs:
               try{$response=Invoke-WebRequest -Uri http://127.0.0.1:17888 -UseBasicParsing -TimeoutSec 1;if($response.StatusCode -eq 200){$ready=$true;break}}catch{}
             }
             if(!$ready){throw "portable EXE did not start embedded web UI"}
+            $agentReady=$false
+            for($i=0;$i -lt 30;$i++){
+              Start-Sleep -Milliseconds 300
+              try{
+                $ar=Invoke-RestMethod -Uri http://127.0.0.1:17891/api/health -TimeoutSec 1
+                if($ar.agent -eq 'T1' -and $ar.pending -ge 0){$agentReady=$true;break}
+              }catch{}
+            }
+            if(!$agentReady){throw "one-click launcher did not bring up local Agent"}
           }finally{
             taskkill /F /T /PID $exe.Id 2>$null | Out-Null
           }

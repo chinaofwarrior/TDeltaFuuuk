@@ -14,6 +14,8 @@ Copy-Item README.md dist
 Copy-Item (Get-Command node.exe).Source dist/runtime/node.exe
 Push-Location cmd/launcher
 try{
+ go test ./...
+ if($LASTEXITCODE -ne 0){throw "launcher tests failed"}
  go build -trimpath -ldflags "-s -w -X main.role=hub" -o ../../dist/TDeltaFuuuk.exe .
  if($LASTEXITCODE -ne 0){throw "Hub EXE failed"}
  go build -trimpath -ldflags "-s -w -X main.role=agent" -o ../../dist/TDeltaAgent.exe .

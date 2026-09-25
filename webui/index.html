@@ -190,7 +190,11 @@ function renderPanels() {
   let html = memberRow('self(我)', self);
   for (const [id, t] of Object.entries(world.teammates)) html += memberRow(id, t.state || t);
   teamEl.innerHTML=html;document.getElementById('peers').textContent=peers.map(p=>p.name+' '+(p.online?'●在线':'○离线')).join(' / ');
-  const panel=document.getElementById('admin');panel.replaceChildren();
+  const panel=document.getElementById('admin');
+  const signature=peers.map(p=>p.id+':'+p.name).join('|');
+  if(panel.dataset.signature===signature)return;
+  panel.dataset.signature=signature;
+  panel.replaceChildren();
   for(const peer of peers){
     const button=document.createElement('button');button.textContent='更新'+peer.name+'邀请';
     button.style.margin='2px';button.onclick=async()=>{
