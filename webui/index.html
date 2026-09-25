@@ -245,10 +245,10 @@ document.getElementById('btn-qr').onclick = async () => {
   box.innerHTML = '<div class="muted">正在获取二维码…</div>';
   const r = await fetch('/api/accounts/login/qr', { method: 'POST' }); const j = await r.json();
   if (!j.ok) { box.innerHTML = `<div class="muted">失败: ${j.error}</div>`; return; }
-  const qr = j.qr || {};
+  const qr = j.qr || {}; const safe=s=>esc(s);
   box.innerHTML = `<div class="muted">请扫码，随后轮询状态</div>`;
-  if (qr.qr_url) box.innerHTML += `<div class="muted"><a href="${qr.qr_url}">打开二维码</a></div>`;
-  if (qr.qr_data || qr.qr_img) box.innerHTML += `<img src="${qr.qr_img || qr.qr_data}" alt="qr">`;
+  if (qr.qr_url) box.innerHTML += `<div class="muted"><a href="${safe(qr.qr_url)}">打开二维码</a></div>`;
+  if (qr.qr_data || qr.qr_img) box.innerHTML += `<img src="${safe(qr.qr_img || qr.qr_data)}" alt="qr">`;
   window.__qrKey = qr.key || qr.ticket || qr.key;
   box.innerHTML += `<div style="margin-top:6px;"><button onclick="pollLogin()">轮询登录状态</button></div>`;
 };
@@ -256,7 +256,7 @@ window.pollLogin = async () => {
   const box = document.getElementById('qrbox');
   const r = await fetch('/api/accounts/login/poll', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ key: window.__qrKey }) });
   const j = await r.json();
-  box.innerHTML = `<div class="muted">${j.result && j.result.frameworkToken ? '登录成功！' : '状态: ' + JSON.stringify(j.result || j)}</div>`;
+  box.innerHTML = `<div class="muted">${j.logged_in ? '登录成功！' : '等待扫码或确认'}</div>`;
   refreshAccounts();
 };
 document.getElementById('btn-fetch').onclick = async () => {

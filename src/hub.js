@@ -248,7 +248,7 @@ export class Hub {
         this.accountsStore.save(this.accounts);
         this._adapter(accountId).setToken(r.frameworkToken);
       }
-      return json(res, 200, { ok: true, result: r });
+      return json(res, 200, { ok: true, logged_in: !!(r && r.frameworkToken), status: r?.status || 'pending' });
     } catch (e) {
       return json(res, 502, { ok: false, error: e.message });
     }

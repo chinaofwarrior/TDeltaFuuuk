@@ -20,7 +20,6 @@ export class ProviderManager {
     this.providersDir = providersDir;
     this.onObservation = onObservation || (() => {});
     this.runtime = runtime;
-    this.args=args||[scriptPath];this.allowed=allowed;
     this.instances = new Map(); // providerId -> ProviderInstance
   }
 
@@ -81,6 +80,7 @@ class ProviderInstance {
     this.id = id;
     this.scriptPath = scriptPath;
     this.runtime = runtime;
+    this.args=args||[scriptPath];this.allowed=allowed;
     this.onObservation = onObservation;
     this.proc = null;
     this.hello = null;

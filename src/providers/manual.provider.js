@@ -28,7 +28,7 @@ function commandToObservation(cmd) {
     case 'status':
       return { ...base, type: 'STATUS', subject: { kind: 'SELF', id: cmd.id || 'T1' }, hp: cmd.hp, ammo: cmd.ammo, medkits: cmd.medkits };
     case 'audio_report':
-      return { ...base, type: 'AUDIO_CONTACT', bearing: cmd.bearing, class: cmd.class || 'footstep', confidence: cmd.confidence ?? 0.8 };
+      return { ...base, type: 'AUDIO_CONTACT', subject: {kind:'OBSERVED_ENEMY',id:'audio-'+(cmd.id||Date.now())}, bearing: cmd.bearing, class: cmd.class || 'footstep', confidence: cmd.confidence ?? 0.8 };
     default:
       return null;
   }
