@@ -12,18 +12,18 @@ func main(){
  if role=="hub" {
   go func(){url:="http://127.0.0.1:17888";for i:=0;i<60;i++{
     res,err:=http.Get(url);if err==nil{res.Body.Close();if res.StatusCode==200{
-      exec.Command("rundll32","url.dll,FileProtocolHandler",url).Start()
+      if os.Getenv("TDF_NO_BROWSER")!="1"{exec.Command("rundll32","url.dll,FileProtocolHandler",url).Start()}
       local:=filepath.Join(root,"TDeltaAgent.config.json")
-      if _,err:=os.Stat(local);err==nil{
+      if os.Getenv("TDF_NO_AUTO_AGENT")!="1"{if _,err:=os.Stat(local);err==nil{
         child:=exec.Command(node,filepath.Join(root,"src","agent.js"));child.Dir=root;child.Stdout=os.Stdout;child.Stderr=os.Stderr
         child.Start()
-      };return
+      }};return
     }};time.Sleep(200*time.Millisecond)
   }}()
  }else{
   go func(){url:="http://127.0.0.1:17891";for i:=0;i<60;i++{
     res,err:=http.Get(url);if err==nil{res.Body.Close();if res.StatusCode==200{
-      exec.Command("rundll32","url.dll,FileProtocolHandler",url).Start();return
+      if os.Getenv("TDF_NO_BROWSER")!="1"{exec.Command("rundll32","url.dll,FileProtocolHandler",url).Start()};return
     }};time.Sleep(200*time.Millisecond)
   }}()
  }

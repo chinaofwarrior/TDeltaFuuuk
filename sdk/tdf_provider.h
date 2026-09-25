@@ -50,13 +50,20 @@ typedef struct TdfHostApi {
 // 不透明句柄
 typedef void* TdfProviderHandle;
 
+// Native providers export these C symbols; the host imports them dynamically.
+#if defined(_WIN32) && defined(TDF_BUILD_PROVIDER)
+#define TDF_PROVIDER_API __declspec(dllexport)
+#else
+#define TDF_PROVIDER_API
+#endif
+
 // Provider 必须导出的函数
-uint32_t tdf_provider_abi_version(void);
-int      tdf_provider_create(const TdfHostApi* host, const char* config_json, TdfProviderHandle* out_handle);
-int      tdf_provider_start(TdfProviderHandle handle);
-int      tdf_provider_poll(TdfProviderHandle handle, TdfObservation* out_batch, uint32_t max_count, uint32_t* out_count);
-void     tdf_provider_stop(TdfProviderHandle handle);
-void     tdf_provider_destroy(TdfProviderHandle handle);
+TDF_PROVIDER_API uint32_t tdf_provider_abi_version(void);
+TDF_PROVIDER_API int      tdf_provider_create(const TdfHostApi* host, const char* config_json, TdfProviderHandle* out_handle);
+TDF_PROVIDER_API int      tdf_provider_start(TdfProviderHandle handle);
+TDF_PROVIDER_API int      tdf_provider_poll(TdfProviderHandle handle, TdfObservation* out_batch, uint32_t max_count, uint32_t* out_count);
+TDF_PROVIDER_API void     tdf_provider_stop(TdfProviderHandle handle);
+TDF_PROVIDER_API void     tdf_provider_destroy(TdfProviderHandle handle);
 
 #ifdef __cplusplus
 }

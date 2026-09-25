@@ -27,6 +27,26 @@ jobs:
           @('dist/TDeltaFuuuk.exe','dist/TDeltaAgent.exe','dist/runtime/node.exe','dist/native/tdf-provider-host.exe','dist/native/example-provider.dll') | ForEach-Object {
             if(!(Test-Path $_)){throw "missing: $_"}
           }
+      - name: Smoke run native host and bundled Hub EXE
+        run: |
+          $native=Start-Process -FilePath .\\dist\\native\\tdf-provider-host.exe -ArgumentList @('--dll', (Resolve-Path .\\dist\\native\\example-provider.dll).Path) -PassThru -RedirectStandardOutput native-smoke.log
+          Start-Sleep -Seconds 2
+          if(!$native.HasExited){Stop-Process -Id $native.Id -Force}
+          $output=Get-Content native-smoke.log -Raw
+          if(!$output.Contains('"type":"hello"') -or !$output.Contains('"type":"observation"')){throw "Native DLL host smoke failed"}
+          $env:TDF_NO_BROWSER='1'
+          $env:TDF_NO_AUTO_AGENT='1'
+          $exe=Start-Process -FilePath .\\dist\\TDeltaFuuuk.exe -PassThru -RedirectStandardOutput hub-smoke.log
+          try{
+            $ready=$false
+            for($i=0;$i -lt 40;$i++){
+              Start-Sleep -Milliseconds 300
+              try{$response=Invoke-WebRequest -Uri http://127.0.0.1:17888 -UseBasicParsing -TimeoutSec 1;if($response.StatusCode -eq 200){$ready=$true;break}}catch{}
+            }
+            if(!$ready){throw "portable EXE did not start embedded web UI"}
+          }finally{
+            taskkill /F /T /PID $exe.Id 2>$null | Out-Null
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: TDeltaFuuuk-portable-windows-amd64
