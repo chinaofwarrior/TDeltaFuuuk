@@ -1,125 +1,123 @@
 # TDeltaFuuuk
 
-Windows 实时小队战术 Hub + 绿色 Agent。
+Windows 实时小队战术 Hub + 绿色 Agent（面向《三角洲行动》的小队协同工具）。
 
-## 现在的运行形态
+本项目是 `chinaofwarrior/TDeltaFuuuk` 的工程实现，严格对齐两份设计文档：
+- **《原理和数据来源.md》**：数据来源边界、实时 vs 历史数据、provenance 纪律
+- **《开发方案.md》**：Provider 插件体系、Observation 模型、Track/融合、战术引擎、三个工程批次
 
-### 主机：`TDeltaFuuuk.exe`
+## 技术选型说明
 
-双击后自动：
+设计文档使用 Go 术语（`.go` 文件、`internal/`、`cmd/hub`）。但本机环境只有 Node.js，故改用 **Node.js 22（零外部依赖，仅内置模块）** 实现，功能一一对应：
 
-1. 生成 `tdelta-hub.json`（首次启动）。
-2. 生成带共享 Token 的 `TDeltaAgent.config.json`。
-3. 启动本机控制台 `http://127.0.0.1:17888`。
-4. 启动队友 Agent 接入口 `0.0.0.0:17889`。
-5. 启动局域网自动发现 UDP `17892`。
-6. 自动打开浏览器。
+| 设计文档 | 本实现 |
+| --- | --- |
+| `cmd/hub` + `cmd/agent` | `src/hub.js` + `src/agent.js` |
+| `internal/observations` | `src/core/observation.js` |
+| `internal/clock` | `src/core/clock.js` |
+| `internal/providers`（C ABI DLL loader） | `src/providers/`（子进程 NDJSON 协议，进程级崩溃隔离） |
+| `internal/fusion` + `internal/tracks` | `src/fusion/engine.js` |
+| `internal/tactics` | `src/tactics/engine.js` |
+| `internal/transport` | `src/transport/net.js` |
+| `internal/adapters/dfapi` | `src/adapters/dfapi.js` |
+| Web 网页 | `webui/index.html`（Canvas 地图 + SSE 实时推送） |
 
-主机网页只绑定 loopback；局域网不能直接读取你的战术网页。队友上报接口需要共享 Token。
+C ABI 参考头文件保留在 `sdk/tdf_provider.h`，供未来 C/C++/Rust 原生 Provider 使用。
 
-### 队友：`TDeltaAgent.exe`
+## 目录结构
 
-把主机生成的 `TDeltaAgent.config.json` 与 `TDeltaAgent.exe` 放在同一目录发给队友。队友双击即可：
+```
+TDeltaFuuuk/
+├── package.json
+├── src/
+│   ├── hub.js                 # Hub 主程序
+│   ├── agent.js               # Agent 主程序
+│   ├── util.js                # ID/配置/凭证/日志
+│   ├── core/                  # observation、clock、ringbuffer
+│   ├── providers/             # Provider 协议 + 管理器 + 手动 Provider
+│   ├── fusion/engine.js       # 融合 + 航迹引擎
+│   ├── tactics/engine.js      # 战术引擎
+│   ├── transport/net.js       # UDP 发现 + ingest + Hub 客户端
+│   └── adapters/dfapi.js      # DF 账号 Adapter
+├── examples/example-provider.js  # 示例 Provider（手动运行）
+├── webui/index.html           # 战术看板（自包含）
+├── sdk/tdf_provider.h         # C ABI 参考头
+└── scripts/                   # check.js / build.ps1
+```
 
-- 自动使用 Windows 主机名作为 `agent_id` / 名称（配置为空时）。
-- 自动通过 UDP 广播发现同一局域网中的 Hub。
-- 从本机 UDP `127.0.0.1:17890` 或 HTTP `127.0.0.1:17891/ingest` 接收 JSON telemetry。
-- 默认 20Hz 采样最新状态并上报 Hub。
-- 自动重连；Hub 消失时会重新发现。
+## 快速开始
 
-不需要 Python，不需要 Node，不需要安装服务。
+```powershell
+# 校验所有模块（无编译）
+node scripts/check.js
+
+# 启动 Hub（自动生成 tdelta-hub.json 与共享 Token）
+node src/hub.js
+# 控制台: http://127.0.0.1:17888
+
+# 启动 Agent（自动发现 Hub，或配置 hubUrl）
+node src/agent.js
+
+# 直接运行示例 Provider（演示 20Hz 位置流，不会被 Agent 自动加载）
+node examples/example-provider.js
+```
+
+首次启动 Hub 会在控制台打印共享 Token，队友的 `TDeltaAgent.config.json` 需填入该 Token 以通过上报鉴权。
+
+## 端口约定
+
+| 端口 | 用途 |
+| --- | --- |
+| 17888 | Hub 控制台 HTTP（仅 loopback） |
+| 17889 | 队友上报（0.0.0.0，需共享 Token） |
+| 17892 | 局域网自动发现（UDP 广播） |
+| 17890 | Agent 本机 UDP ingest |
+| 17891 | Agent 本机 HTTP ingest |
+| 17900 | ManualProvider HTTP 端点 |
 
 ## 数据接入
 
-当前程序故意把“数据怎么产生”与“队伍融合/网页显示”拆开。任何你有权使用的本机数据源，都可以向 Agent 写入统一 JSON。
+任何你有权使用的本机数据源，都可以写入统一 JSON（自动转成 Observation）：
 
-### HTTP
-
-```text
-POST http://127.0.0.1:17891/ingest
-Content-Type: application/json
+```http
+POST http://127.0.0.1:17891/ingest          # Agent 本机
+POST http://127.0.0.1:17888/api/ingest      # Hub 直接输入（需 Token）
+UDP  -> 127.0.0.1:17890                     # Agent 本机数据报
 ```
 
-### UDP
-
-把同栻的 JSON 数据报发送到：
-
-```text
-127.0.0.1:17890
-```
-
-### 主机直接输入
-
-如果主机本机的数据源不想再运行 Agent，可以直接：
-
-```text
-POST http://127.0.0.1:17888/api/ingest
-```
-
-## Frame 协议示例
+示例 Observation：
 
 ```json
 {
-  "ts": 1790229000123,
-  "self": {
-    "id": "me",
-    "name": "我",
-    "x": 100,
-    "y": 100,
-    "z": 0,
-    "yaw": 90,
-    "hp": 86,
-    "maxHp": 100,
-    "equipment": {
-      "primary": "M4A1",
-      "ammoType": "5.56 AP",
-      "helmet": "三级头",
-      "armor": "战术甲",
-      "armorDurability": 72,
-      "armorMax": 100
-    },
-    "supplies": {
-      "ammo": 118,
-      "medkits": 2,
-      "armorRepair": 1,
-      "grenades": 1,
-      "smoke": 2
-    }
-  },
-  "contacts": [
-    {
-      "id": "E1",
-      "name": "目标A",
-      "x": 145,
-      "y": 110,
-      "confidence": 0.85,
-      "source": "visual",
-      "equipment_source": "team-report",
-      "equipment": {"primary": "SCAR-H", "armor": "重甲"}
-    }
-  ]
+  "type": "ENTITY_STATE",
+  "subject": { "kind": "SELF", "id": "T1" },
+  "position": { "x": 100, "y": 100, "z": 0, "floor": 1 },
+  "heading": 90,
+  "hp": 86, "max_hp": 100,
+  "source": "TEAM_SELF_REPORT",
+  "confidence": 1.0
 }
 ```
 
-位置和装备都支持稀疏更新：低频装备帧不带 `x/y` 时，Hub/Agent 不会把之前的位置清零；位置帧不重复携带装备时，已知装备/补给也会保留。
+位置与装备支持稀疏更新：低频装备帧不带 `x/y` 时不会清空位置，反之亦然。
 
-## 构建
+## Provider 协议
 
-TONG / Windows PowerShell：
+Provider 是独立子进程，通过 stdout 输出 NDJSON（每行一个 JSON）：
 
-```powershell
-.\scripts\build.ps1
+```
+{"type":"hello","provider":"ExampleProvider","abi":1,"capabilities":["SELF_POSITION"],"max_rate_hz":20}
+{"type":"heartbeat"}
+{"type":"observation","observation":{...}}
+{"type":"batch","observations":[{...},{...}]}
 ```
 
-输出：
+管理器（`src/providers/manager.js`）负责：ABI 校验、能力契约、心跳健康检查、崩溃自动重启。写一个新的数据源 Provider 只需新建一个 `*.provider.js` 放进 `providersDir`，无需改动 Hub。
 
-```text
-dist\TDeltaFuuuk.exe
-dist\TDeltaAgent.exe
-```
+## DF Account Adapter
 
-推送 `main` 后，GitHub Actions 的 **Build Windows EXE** 也会运行测试、构建 Windows x64，并上传 `TDeltaFuuuk-windows-amd64` artifact。
+`src/adapters/dfapi.js` 实现社区 API 的扫码登录与资料/战绩/地图/资产/经济/物品接口（`personalinfo`、`record`、`mapStats`、`money`、`collection` 等）。需在 `tdelta-hub.json` 配置 `dfBaseUrl` 指向可用的社区后端实例，扫码成功获得 `frameworkToken` 后保存到本地加密凭证文件（默认 AES-256-GCM + 机器盐；生产可替换为 Windows DPAPI/Credential Manager）。
 
 ## 安全边界
 
-本仓库的 Adapter 接受明确送入的 telemetry。它不实现游戏进程注入、内存扫描、DMA、反作弊绕过，也不实现从游戏中提取正常玩家不可获得的隐藏敌人位置、装备或库存。
+本项目的 Adapter 只接受明确送入的 telemetry，**不实现**游戏进程注入、内存扫描、DMA、反作弊绕过，也不提取正常玩家不可见的隐藏敌人信息。核心竞争力是实时多源融合、队友协同与战术决策，而非依赖不可维护的游戏内部地址。详见两份设计文档。

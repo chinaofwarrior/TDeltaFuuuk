@@ -1,4 +1,17 @@
-__pycache__/
-*.pyc
-.DS_Store
+# 运行时产物（含敏感共享 Token，切勿提交）
+tdelta-hub.json
+TDeltaAgent.config.json
+tdelta-accounts.enc.json
+
+# 构建产物
+dist/
+
+# 依赖
+node_modules/
+
+# 日志
+*.log
+
+# 系统文件
 Thumbs.db
+.DS_Store

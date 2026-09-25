@@ -1,0 +1,19 @@
+{
+  "name": "tdeltafuuuk",
+  "version": "0.3.0",
+  "description": "Windows 实时小队战术 Hub + 绿色 Agent（三角洲行动战术协同，零外部依赖 Node 实现）",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/hub.js",
+    "hub": "node src/hub.js",
+    "agent": "node src/agent.js",
+    "example-provider": "node examples/example-provider.js",
+    "manual-provider": "node src/providers/manual.provider.js",
+    "check": "node scripts/check.js"
+  },
+  "license": "MIT"
+}

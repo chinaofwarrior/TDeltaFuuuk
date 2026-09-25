@@ -1,47 +1,272 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="theme-color" content="#071018" />
-  <title>TDeltaFuuuk · 实时战术助手</title>
-  <link rel="stylesheet" href="./styles.css" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TDeltaFuuuk 战术看板</title>
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #121a22; --panel2: #16212b; --line: #22313d;
+    --text: #d7e2ea; --dim: #6b7d8b; --green: #2dd48f; --blue: #3da5f5;
+    --red: #ff5d5d; --amber: #ffb547; --purple: #9b7bff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg); color: var(--text); height: 100vh; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 16px; font-weight: 600; letter-spacing: .5px; }
+  header h1 span { color: var(--green); }
+  #status { font-size: 12px; color: var(--dim); }
+  #status.on { color: var(--green); }
+  #status.off { color: var(--red); }
+  .layout { display: flex; height: calc(100vh - 50px); }
+  .map-wrap { flex: 1; position: relative; background: radial-gradient(circle at center, #0f171f, #080c10); }
+  canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+  .sidebar { width: 320px; background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; }
+  .card { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin-bottom: 8px; }
+  .row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+  .tag { padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+  .tag.HIGH { background: rgba(255,93,93,.18); color: var(--red); }
+  .tag.MEDIUM { background: rgba(255,181,71,.18); color: var(--amber); }
+  .tag.LOW { background: rgba(107,125,139,.18); color: var(--dim); }
+  .tag.ENOUGH { color: var(--green); }
+  .tag.LOWs { color: var(--amber); }
+  .tag.EMPTY { color: var(--red); }
+  .bar { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--green); }
+  .alert { font-size: 12px; padding: 6px 8px; margin: 4px 0; border-radius: 5px; background: var(--panel2); border-left: 3px solid var(--amber); }
+  .alert.HIGH { border-left-color: var(--red); }
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    padding: 7px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  button:hover { border-color: var(--green); color: var(--green); }
+  button.primary { background: rgba(45,212,143,.15); border-color: var(--green); color: var(--green); }
+  .muted { color: var(--dim); font-size: 12px; }
+  .mono { font-family: Consolas, monospace; }
+  #qrbox { margin-top: 8px; }
+  #qrbox img { max-width: 180px; }
+</style>
 </head>
 <body>
-<header class="topbar">
-  <div><div class="eyebrow">REAL-TIME SQUAD TACTICAL COPILOT</div><h1>TDeltaFuuuk</h1></div>
-  <div class="connection"><span id="statusDot" class="dot idle"></span><span id="statusText">正在连接本机 Hub</span><span id="latency">-- ms</span></div>
+<header>
+  <h1>TDelta<span>Fuuuk</span> 战术看板</h1>
+  <div id="status" class="off">未连接</div>
 </header>
-<main class="layout">
-  <section class="panel control-panel">
-    <div class="panel-title"><h2>系统状态</h2><span id="frameRate" class="muted">0 Hz</span></div>
-    <div class="metrics six">
-      <div><strong id="agentCount">0</strong><span>在线 Agent</span></div>
-      <div><strong id="teamCount">0</strong><span>队友</span></div>
-      <div><strong id="contactCount">0</strong><span>目标</span></div>
-      <div><strong id="nearest">--</strong><span>最近距离</span></div>
-      <div><strong id="riskLevel">安全</strong><span>风险</span></div>
-      <div><strong id="sourceAge">--</strong><span>数据年龄</span></div>
+<div class="layout">
+  <div class="map-wrap"><canvas id="map"></canvas></div>
+  <div class="sidebar">
+    <div class="card">
+      <h2>小队状态</h2>
+      <div id="team"></div>
     </div>
-    <div class="row compact">
-      <button id="voiceBtn" class="secondary">语音：开</button>
-      <button id="demoBtn" class="secondary">本地 Demo</button>
-      <button id="clearBtn" class="ghost">清空事件</button>
+    <div class="card">
+      <h2>威胁目标</h2>
+      <div id="threats"></div>
     </div>
-  </section>
+    <div class="card">
+      <h2>战术态势</h2>
+      <div id="tactics"></div>
+    </div>
+    <div class="card">
+      <h2>语音告警</h2>
+      <div id="alerts"></div>
+    </div>
+    <div class="card">
+      <h2>三角洲账号</h2>
+      <div id="accounts" class="muted">未绑定</div>
+      <div style="margin-top:8px; display:flex; gap:6px;">
+        <button id="btn-qr" class="primary">扫码登录</button>
+        <button id="btn-fetch">拉取资料</button>
+      </div>
+      <div id="qrbox"></div>
+    </div>
+  </div>
+</div>
 
-  <section class="panel radar-panel">
-    <div class="panel-title"><h2>战术态势</h2><div class="legend"><span><i class="legend-dot self"></i>自己</span><span><i class="legend-dot team"></i>队友</span><span><i class="legend-dot enemy"></i>已知目标</span></div></div>
-    <div class="canvas-wrap"><canvas id="radar"></canvas><div class="north">前</div><div id="primaryAlert" class="primary-alert hidden"></div></div>
-    <div class="scale-row"><label>显示半径 <strong id="rangeLabel">120m</strong></label><input id="range" type="range" min="40" max="300" value="120" step="10" /></div>
-  </section>
+<script>
+const canvas = document.getElementById('map');
+const ctx = canvas.getContext('2d');
+let world = { self: {}, teammates: {}, enemies: [] };
+let tactics = {};
+const M_PER_PX = 0.5; // 缩放：像素每米，动态调整
 
-  <section class="panel threat-panel"><div class="panel-title"><h2>威胁 / 已知装备</h2><span class="muted">实时</span></div><div id="threatList" class="list empty">等待数据</div></section>
-  <section class="panel team-panel"><div class="panel-title"><h2>队伍状态 / 装备</h2><span class="muted">协同</span></div><div id="teamList" class="list empty">等待数据</div></section>
-  <section class="panel event-panel"><div class="panel-title"><h2>报点与事件流</h2><span id="clock" class="muted"></span></div><div id="eventLog" class="event-log"></div></section>
-  <section class="panel supply-panel"><div class="panel-title"><h2>队伍补给总览</h2><span class="muted">生命 · 护甲 · 弹药 · 医疗 · 修甲 · 投掷物</span></div><div id="supplyList" class="supply-grid empty">等待队伍装备与补给数据</div></section>
-</main>
-<footer>Hub 内置网页 · Agent 仅上报明确接入的数据；界面不会自行读取游戏进程。</footer>
-<script src="./app.js"></script>
+function resize() {
+  canvas.width = canvas.clientWidth;
+  canvas.height = canvas.clientHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+function connect() {
+  const es = new EventSource('/api/events');
+  es.onopen = () => setStatus(true);
+  es.onerror = () => setStatus(false);
+  es.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'state') { world = msg.world; tactics = msg.tactics; render(); }
+    } catch {}
+  };
+}
+function setStatus(on) {
+  const el = document.getElementById('status');
+  el.textContent = on ? '已连接' : '未连接';
+  el.className = on ? 'on' : 'off';
+}
+
+function render() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  drawGrid(W, H);
+  const self = world.self;
+  const cx = self.position ? self.position.x : 0;
+  const cy = self.position ? self.position.y : 0;
+  const s = (p) => ({ x: W/2 + (p.x - cx) / M_PER_PX, y: H/2 + (p.y - cy) / M_PER_PX });
+  const r = (p) => { const q = s(p); return Math.hypot(q.x - W/2, q.y - H/2); };
+
+  // 敌人
+  for (const e of world.enemies) {
+    if (!e.position) continue;
+    const q = s(e.position);
+    const sigmaPx = e.sigma / M_PER_PX;
+    ctx.beginPath(); ctx.arc(q.x, q.y, Math.max(sigmaPx, 4), 0, Math.PI*2);
+    ctx.setLineDash([4,3]); ctx.strokeStyle = 'rgba(255,93,93,.6)'; ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = e.kind === 'PREDICTED_ENEMY' ? 'rgba(255,93,93,.35)' : '#ff5d5d';
+    ctx.beginPath(); ctx.arc(q.x, q.y, 5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#ffd7d7'; ctx.font = '10px Consolas'; ctx.fillText(e.id, q.x + 8, q.y - 6);
+  }
+  // 队友
+  for (const [id, t] of Object.entries(world.teammates)) {
+    if (!t.position) continue;
+    const q = s(t.position);
+    ctx.fillStyle = '#3da5f5';
+    ctx.beginPath(); ctx.arc(q.x, q.y, 6, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#cfe8ff'; ctx.font = '10px Consolas'; ctx.fillText(id, q.x + 8, q.y - 6);
+  }
+  // 自己
+  if (self.position) {
+    const q = { x: W/2, y: H/2 };
+    ctx.fillStyle = '#2dd48f';
+    ctx.beginPath(); ctx.arc(q.x, q.y, 7, 0, Math.PI*2); ctx.fill();
+    if (self.heading !== undefined) {
+      const a = (self.heading * Math.PI) / 180;
+      ctx.strokeStyle = '#2dd48f'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(q.x + Math.cos(a)*20, q.y + Math.sin(a)*20); ctx.stroke();
+    }
+  }
+  // 撤离路线
+  if (tactics.escape_route && tactics.escape_route.bearing !== null && self.position) {
+    const a = (tactics.escape_route.bearing * Math.PI) / 180;
+    ctx.strokeStyle = 'rgba(45,212,143,.7)'; ctx.lineWidth = 2; ctx.setLineDash([6,4]);
+    ctx.beginPath(); ctx.moveTo(W/2, H/2);
+    ctx.lineTo(W/2 + Math.cos(a)*60, H/2 + Math.sin(a)*60); ctx.stroke(); ctx.setLineDash([]);
+  }
+  renderPanels();
+}
+
+function drawGrid(W, H) {
+  ctx.strokeStyle = 'rgba(34,49,61,.5)'; ctx.lineWidth = 1;
+  const step = 40;
+  ctx.beginPath();
+  for (let x = (W/2) % step; x < W; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+  for (let y = (H/2) % step; y < H; y += step) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+  ctx.stroke();
+  // 中心十字
+  ctx.strokeStyle = 'rgba(107,125,139,.35)';
+  ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.moveTo(0, H/2); ctx.lineTo(W, H/2); ctx.stroke();
+}
+
+function renderPanels() {
+  // 队伍
+  const self = world.self;
+  const teamEl = document.getElementById('team');
+  let html = memberRow('self(我)', self);
+  for (const [id, t] of Object.entries(world.teammates)) html += memberRow(id, t.state || t);
+  teamEl.innerHTML = html;
+
+  // 威胁
+  const th = tactics.threats || [];
+  document.getElementById('threats').innerHTML = th.length
+    ? th.map((t) => `<div class="row"><span>${t.id}</span><span class="tag ${t.level}">${t.level} · ${t.distance}m</span></div>`).join('')
+    : '<div class="muted">暂无威胁</div>';
+
+  // 战术态势
+  const iso = tactics.isolated || [];
+  const enc = tactics.encirclement || { level: 'NONE' };
+  const cf = tactics.crossfires || [];
+  const esc = tactics.escape_route || {};
+  document.getElementById('tactics').innerHTML = `
+    <div class="row"><span>合围态势</span><span class="tag ${enc.level}">${enc.level} (${enc.sectors}扇区)</span></div>
+    <div class="row"><span>孤立队员</span><span>${iso.length ? iso.map(i=>i.id).join(', ') : '无'}</span></div>
+    <div class="row"><span>交叉火力</span><span>${cf.length}</span></div>
+    <div class="row"><span>撤离方位</span><span class="mono">${esc.bearing !== null ? esc.bearing + '°' : '—'}</span></div>`;
+
+  // 告警
+  const al = tactics.alerts || [];
+  document.getElementById('alerts').innerHTML = al.length
+    ? al.slice(-8).reverse().map((a) => `<div class="alert ${a.priority}">${a.text}</div>`).join('')
+    : '<div class="muted">暂无告警</div>';
+}
+
+function memberRow(id, st) {
+  const hp = st && st.hp !== undefined ? st.hp : (st && st.max_hp);
+  const hpPct = hp !== undefined && hp !== null ? Math.max(0, Math.min(100, hp)) : 100;
+  const hpClass = hpPct <= 25 ? 'EMPTY' : hpPct <= 50 ? 'LOWs' : 'ENOUGH';
+  const ammo = st && st.ammo;
+  const med = st && st.medkits;
+  return `<div style="margin-bottom:8px;">
+    <div class="row"><span>${id}</span><span class="tag ${hpClass}">HP ${hp ?? '?'}</span></div>
+    <div class="bar"><i style="width:${hpPct}%;${hpPct<=25?'background:#ff5d5d':hpPct<=50?'background:#ffb547':''}"></i></div>
+    <div class="row muted"><span>弹药 ${ammo ?? '?'}</span><span>医疗 ${med ?? '?'}</span></div>
+  </div>`;
+}
+
+// 账号面板
+async function refreshAccounts() {
+  const r = await fetch('/api/accounts'); const j = await r.json();
+  const el = document.getElementById('accounts');
+  if (!j || !j.length) { el.textContent = '未绑定'; return; }
+  el.innerHTML = j.map((a) => {
+    const p = a.profile;
+    let info = a.bound ? '●已绑定' : '○未绑定';
+    if (p && p.personalInfo) info += ' · 已拉取资料';
+    return `${a.id} ${info}`;
+  }).join('<br>');
+}
+document.getElementById('btn-qr').onclick = async () => {
+  const box = document.getElementById('qrbox');
+  box.innerHTML = '<div class="muted">正在获取二维码…</div>';
+  const r = await fetch('/api/accounts/login/qr', { method: 'POST' }); const j = await r.json();
+  if (!j.ok) { box.innerHTML = `<div class="muted">失败: ${j.error}</div>`; return; }
+  const qr = j.qr || {};
+  box.innerHTML = `<div class="muted">请扫码，随后轮询状态</div>`;
+  if (qr.qr_url) box.innerHTML += `<div class="muted"><a href="${qr.qr_url}">打开二维码</a></div>`;
+  if (qr.qr_data || qr.qr_img) box.innerHTML += `<img src="${qr.qr_img || qr.qr_data}" alt="qr">`;
+  window.__qrKey = qr.key || qr.ticket || qr.key;
+  box.innerHTML += `<div style="margin-top:6px;"><button onclick="pollLogin()">轮询登录状态</button></div>`;
+};
+window.pollLogin = async () => {
+  const box = document.getElementById('qrbox');
+  const r = await fetch('/api/accounts/login/poll', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ key: window.__qrKey }) });
+  const j = await r.json();
+  box.innerHTML = `<div class="muted">${j.result && j.result.frameworkToken ? '登录成功！' : '状态: ' + JSON.stringify(j.result || j)}</div>`;
+  refreshAccounts();
+};
+document.getElementById('btn-fetch').onclick = async () => {
+  const r = await fetch('/api/accounts/fetch', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({}) });
+  const j = await r.json();
+  document.getElementById('qrbox').innerHTML = `<div class="muted mono">${j.ok ? JSON.stringify(j.profile, null, 1).slice(0, 600) : j.error}</div>`;
+};
+
+connect();
+refreshAccounts();
+</script>
 </body>
 </html>
